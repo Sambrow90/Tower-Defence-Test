@@ -23,6 +23,8 @@ def update_world(world, dt):
                 target = e
         if target is not None:
             target.take_damage(t.dmg)
+            if t.tower_type == "slow":
+                target.apply_slow(0.5, 1.0)
             t.shoot()
             world.cb_shoot()
 

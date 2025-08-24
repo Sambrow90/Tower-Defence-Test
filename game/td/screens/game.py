@@ -3,6 +3,7 @@ from kivy.uix.widget import Widget
 from kivy.properties import NumericProperty, StringProperty, ObjectProperty
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle
+import math
 from kivy.graphics.texture import Texture
 from kivy.core.audio import SoundLoader
 
@@ -121,6 +122,10 @@ class GameWidget(Widget):
         self.path_tex = pixel_texture(path_pattern)
         self.enemy_tex = pixel_texture(enemy_pattern)
         self.tower_tex = pixel_texture(tower_pattern)
+
+        self.tower_colors = {"cannon": (1, 1, 1), "slow": (0.4, 0.6, 1)}
+        self.enemy_colors = {"normal": (1, 1, 1), "fast": (1, 0.5, 0.5)}
+        self.selected_tower = None
         self._music = SoundLoader.load(resource_path("assets", "music", "loop.wav"))
         if self._music:
             self._music.loop = True
@@ -141,13 +146,25 @@ class GameWidget(Widget):
     def on_touch_down(self, touch):
         if not self.collide_point(*touch.pos):
             return False
-        # HUD ist rechts (25%), hier nichts platzieren
+        if touch.button == "right":
+            self.world.cycle_tower_type()
+            return True
         if touch.x > self.parent.width * 0.75:
             return False
-        # Convert to grid
         gx = int((touch.x - self.x) // self.world.tile_size)
         gy = int((touch.y - self.y) // self.world.tile_size)
-        return self.world.place_tower((gx, gy))
+        tower = self.world.get_tower_at((gx, gy))
+        if tower:
+            if self.selected_tower and self.selected_tower is not tower:
+                self.world.try_fuse(self.selected_tower, tower)
+                self.selected_tower = None
+            else:
+                self.selected_tower = tower
+            return True
+        placed = self.world.place_tower((gx, gy))
+        if placed:
+            self.selected_tower = None
+        return placed
 
     def draw(self):
         self.canvas.clear()
@@ -169,16 +186,27 @@ class GameWidget(Widget):
 
             # Towers
             for t in self.world.towers:
-                Rectangle(texture=self.tower_tex, pos=(t.x - 16, t.y - 16), size=(32, 32))
+                col = self.tower_colors.get(t.tower_type, (1, 1, 1))
+                scale = 1.0 + 0.05 * (t.level - 1) + 0.1 * math.sin(t.anim * 3)
+                size = 32 * scale
+                Color(*col, 1)
+                Rectangle(texture=self.tower_tex, pos=(t.x - size/2, t.y - size/2), size=(size, size))
+                if self.selected_tower is t:
+                    Color(1, 1, 0, 0.6)
+                    Rectangle(pos=(t.x - size/2 - 2, t.y - size/2 - 2), size=(size + 4, size + 4))
+                Color(1, 1, 1, 1)
 
             # Enemies with small health bar
             for e in self.world.enemies:
-                Rectangle(texture=self.enemy_tex, pos=(e.x - 16, e.y - 16), size=(32, 32))
+                col = self.enemy_colors.get(e.enemy_type, (1, 1, 1))
+                offset = 2 * math.sin(e.anim * 6)
+                Color(*col, 1)
+                Rectangle(texture=self.enemy_tex, pos=(e.x - 16, e.y - 16 + offset), size=(32, 32))
                 hp_frac = max(0.0, e.hp / e.max_hp)
                 Color(0.2, 0.0, 0.0, 1)
-                Rectangle(pos=(e.x - 16, e.y + 18), size=(32, 4))
+                Rectangle(pos=(e.x - 16, e.y + 18 + offset), size=(32, 4))
                 Color(0.8, 0.0, 0.0, 1)
-                Rectangle(pos=(e.x - 16, e.y + 18), size=(32 * hp_frac, 4))
+                Rectangle(pos=(e.x - 16, e.y + 18 + offset), size=(32 * hp_frac, 4))
                 Color(1, 1, 1, 1)
 
     def play_shoot(self):
