@@ -1,0 +1,42 @@
+#:kivy 2.3.0
+
+<RootScreens>:
+    transition: SlideTransition()
+
+<MenuScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: '20dp'
+        spacing: '12dp'
+        canvas.before:
+            Color:
+                rgba: 0.07, 0.07, 0.1, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        Label:
+            text: "Modular TD (Kivy)"
+            font_size: '32sp'
+            size_hint_y: None
+            height: '80dp'
+
+        Label:
+            text: "Ein simpler, modularer 2D-TD-Prototyp"
+            size_hint_y: None
+            height: '40dp'
+
+        Button:
+            text: "Spiel starten"
+            size_hint: 0.4, None
+            height: '48dp'
+            pos_hint: {'center_x': 0.5}
+            on_release: root.start_game()
+
+        Widget:
+            size_hint_y: 1
+
+        Label:
+            text: "Hinweis: Platzieren mit Linksklick; Towers schießen automatisch."
+            size_hint_y: None
+            height: '40dp'

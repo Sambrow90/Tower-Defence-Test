@@ -1,0 +1,69 @@
+#:kivy 2.3.0
+
+<GameScreen>:
+    BoxLayout:
+        orientation: 'horizontal'
+        canvas.before:
+            Color:
+                rgba: 0.05, 0.05, 0.08, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        # Game area (75% width)
+        GameWidget:
+            id: game
+            size_hint_x: 0.75
+            world: None
+        # HUD
+        BoxLayout:
+            orientation: 'vertical'
+            padding: '8dp'
+            spacing: '8dp'
+            size_hint_x: 0.25
+
+            Label:
+                text: "HUD"
+                font_size: '22sp'
+                size_hint_y: None
+                height: '36dp'
+
+            Label:
+                text: "Gold: " + str(root.gold)
+                size_hint_y: None
+                height: '26dp'
+            Label:
+                text: "Leben: " + str(root.lives)
+                size_hint_y: None
+                height: '26dp'
+            Label:
+                text: "Welle: " + str(root.wave)
+                size_hint_y: None
+                height: '26dp'
+            Label:
+                text: "Nächste Welle in: " + ("{:.1f}s".format(root.next_wave_in) if root.next_wave_in > 0 else "läuft")
+                size_hint_y: None
+                height: '26dp'
+
+            Button:
+                text: "Pause"
+                size_hint_y: None
+                height: '40dp'
+                on_release: root.pause()
+            Button:
+                text: "Weiter"
+                size_hint_y: None
+                height: '40dp'
+                on_release: root.resume()
+            Button:
+                text: "Neustart"
+                size_hint_y: None
+                height: '40dp'
+                on_release: root.restart()
+
+            Label:
+                text: root.status
+                size_hint_y: None
+                height: '40dp'
+
+<GameWidget>:
