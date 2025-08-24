@@ -9,10 +9,10 @@ class World:
         # Game state
         self.enemies = []
         self.towers = []
-        self.gold = 150
+        self.gold = 250
         self.lives = 20
         self.wave_number = 0
-        self.time_to_next_wave = 3.0
+        self.time_to_next_wave = 1.0
         self.paused = False
         self.status_text = ""
 
@@ -66,7 +66,7 @@ class World:
         self._enemies_to_spawn = count
         self._spawn_timer = 0.0
         self._spawn_interval = max(0.28, 0.62 - 0.03 * self.wave_number)
-        self._wave_cooldown = 9999.0  # disabled during active spawns
+        self._wave_cooldown = 9.0  # disabled during active spawns
         self._pending_enemy_stats = (base_hp, speed)
 
     def spawn_enemy(self):

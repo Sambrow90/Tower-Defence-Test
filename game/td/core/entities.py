@@ -3,6 +3,7 @@ class Enemy:
         self.x = x
         self.y = y
         self.hp = float(hp)
+        self.max_hp = float(hp)
         self.speed = float(speed)
         self.waypoints = waypoints
         self._wp_idx = 1  # 0 is spawn point, move to 1

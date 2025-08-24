@@ -16,8 +16,8 @@ class RandomTDApp(App):
             Window.size = (1280, 720)
 
         # Load KV files
-        Builder.load_file(resource_path("td", "ui", "menu.kv"))
-        Builder.load_file(resource_path("td", "ui", "game.kv"))
+        Builder.load_file(resource_path("ui", "menu.kv"))
+        Builder.load_file(resource_path("ui", "game.kv"))
 
         from td.screens.menu import MenuScreen   # noqa
         from td.screens.game import GameScreen   # noqa
