@@ -16,17 +16,17 @@ class GameWidget(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bg_tex = CoreImage(resource_path("td", "assets", "textures", "background.png")).texture
-        self.enemy_tex = CoreImage(resource_path("td", "assets", "textures", "enemy.png")).texture
-        self.tower_tex = CoreImage(resource_path("td", "assets", "textures", "tower.png")).texture
-        self._music = SoundLoader.load(resource_path("td", "assets", "music", "loop.wav"))
+        self.bg_tex = CoreImage(resource_path("assets", "textures", "background.png")).texture
+        self.enemy_tex = CoreImage(resource_path("assets", "textures", "enemy.png")).texture
+        self.tower_tex = CoreImage(resource_path("assets", "textures", "tower.png")).texture
+        self._music = SoundLoader.load(resource_path("assets", "music", "loop.wav"))
         if self._music:
             self._music.loop = True
             self._music.volume = 0.2
             self._music.play()
 
-        self.sfx_shoot = SoundLoader.load(resource_path("td", "assets", "sfx", "shoot.wav"))
-        self.sfx_death = SoundLoader.load(resource_path("td", "assets", "sfx", "death.wav"))
+        self.sfx_shoot = SoundLoader.load(resource_path("assets", "sfx", "shoot.wav"))
+        self.sfx_death = SoundLoader.load(resource_path("assets", "sfx", "death.wav"))
 
     def on_size(self, *args):
         if self.world:
