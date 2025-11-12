@@ -62,6 +62,8 @@ namespace TD.Managers
 
             if (saveManager != null)
             {
+                saveManager.LoadCompleted += HandleSaveLoaded;
+                saveManager.SaveCompleted += HandleSaveSaved;
                 saveManager.Initialize();
             }
 
@@ -93,6 +95,40 @@ namespace TD.Managers
 
             SetGameSpeed(defaultGameSpeed);
             ChangeState(GameState.MainMenu);
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
+
+            if (saveManager != null)
+            {
+                saveManager.LoadCompleted -= HandleSaveLoaded;
+                saveManager.SaveCompleted -= HandleSaveSaved;
+            }
+
+            if (towerManager != null)
+            {
+                towerManager.CurrencyChanged -= HandleTowerCurrencyChanged;
+            }
+
+            if (levelManager != null)
+            {
+                levelManager.LevelLoaded -= HandleLevelLoaded;
+                levelManager.LevelStarted -= HandleLevelStarted;
+                levelManager.LevelCompleted -= HandleLevelCompleted;
+                levelManager.LevelFailed -= HandleLevelFailed;
+            }
+
+            if (waveManager != null)
+            {
+                waveManager.WaveStarted -= HandleWaveStarted;
+                waveManager.WaveCompleted -= HandleWaveCompleted;
+                waveManager.AllWavesCompleted -= HandleAllWavesCompleted;
+            }
         }
 
         public void StartGame()
@@ -239,6 +275,27 @@ namespace TD.Managers
         private void HandleLevelCompleted(LevelData level)
         {
             ChangeState(GameState.Victory);
+
+            if (saveManager != null && level != null)
+            {
+                string nextLevelId = null;
+
+                if (levelManager != null)
+                {
+                    var availableLevels = levelManager.AvailableLevels;
+                    int nextIndex = levelManager.CurrentLevelIndex + 1;
+                    if (availableLevels != null && nextIndex >= 0 && nextIndex < availableLevels.Count)
+                    {
+                        LevelData nextLevel = availableLevels[nextIndex];
+                        if (nextLevel != null)
+                        {
+                            nextLevelId = nextLevel.LevelId;
+                        }
+                    }
+                }
+
+                saveManager.RegisterLevelCompletion(level.LevelId, PlayerCurrency, nextLevelId);
+            }
         }
 
         private void HandleLevelFailed(LevelData level)
@@ -259,6 +316,34 @@ namespace TD.Managers
         private void HandleAllWavesCompleted(LevelData level)
         {
             levelManager?.CompleteLevel();
+        }
+
+        private void HandleSaveLoaded(SaveData saveData)
+        {
+            ApplySettings(saveData?.Settings);
+        }
+
+        private void HandleSaveSaved(SaveData saveData)
+        {
+            ApplySettings(saveData?.Settings);
+        }
+
+        private void ApplySettings(SettingsData settings)
+        {
+            if (settings == null)
+            {
+                return;
+            }
+
+            AudioListener.volume = Mathf.Clamp01(settings.MasterVolume);
+
+            int qualityIndex = Mathf.Clamp((int)settings.Quality, 0, Mathf.Max(0, QualitySettings.names.Length - 1));
+            if (QualitySettings.names.Length > 0)
+            {
+                QualitySettings.SetQualityLevel(qualityIndex, true);
+            }
+
+            // Language handling would typically be forwarded to a localisation system.
         }
     }
 
