@@ -73,6 +73,11 @@ namespace TD.Managers
                 towerManager.CurrencyChanged += HandleTowerCurrencyChanged;
             }
 
+            if (enemyManager != null)
+            {
+                enemyManager.Initialize();
+            }
+
             if (levelManager != null)
             {
                 levelManager.LevelLoaded += HandleLevelLoaded;

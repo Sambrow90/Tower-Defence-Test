@@ -2,13 +2,14 @@ using System;
 using UnityEngine;
 using TD.Gameplay.Data;
 using TD.Systems;
+using TD.Systems.Ticking;
 
 namespace TD.Gameplay.Enemies
 {
     /// <summary>
     /// Handles movement and health for an enemy instance based on EnemyData.
     /// </summary>
-    public class EnemyBehaviour : MonoBehaviour
+    public class EnemyBehaviour : MonoBehaviour, ITickable
     {
         public event Action<EnemyBehaviour> EnemyDied;
         public event Action<EnemyBehaviour> EnemyReachedGoal;
@@ -23,6 +24,8 @@ namespace TD.Gameplay.Enemies
         private int previousWaypointIndex;
         private int currentWaypointIndex;
         private bool reachedGoal;
+        private bool healthSubscribed;
+        private ObjectPool<EnemyBehaviour> owningPool;
 
         public EnemyData Data => enemyData;
         public bool IsAlive => health != null && !health.IsDead;
@@ -44,18 +47,6 @@ namespace TD.Gameplay.Enemies
             }
         }
 
-        private void OnEnable()
-        {
-            SubscribeHealth();
-            ApplyData(enemyData);
-            ResetPath();
-        }
-
-        private void OnDisable()
-        {
-            UnsubscribeHealth();
-        }
-
         public void ApplyData(EnemyData data)
         {
             if (data == null)
@@ -73,6 +64,29 @@ namespace TD.Gameplay.Enemies
             health.Initialize(enemyData.MaxHealth);
             reachedGoal = false;
             UpdateProgress();
+        }
+
+        public void Activate(EnemyData data, WaypointPath path, ObjectPool<EnemyBehaviour> pool)
+        {
+            owningPool = pool;
+            if (path != null)
+            {
+                waypointPath = path;
+            }
+
+            SubscribeHealth();
+            ApplyData(data);
+            ResetPath();
+        }
+
+        public void Deactivate()
+        {
+            UnsubscribeHealth();
+            owningPool = null;
+            reachedGoal = false;
+            currentWaypointIndex = 0;
+            previousWaypointIndex = 0;
+            PathProgress = 0f;
         }
 
         public void Tick(float deltaTime)
@@ -104,9 +118,21 @@ namespace TD.Gameplay.Enemies
             }
         }
 
-        private void Update()
+        private void OnEnable()
         {
-            Tick(Time.deltaTime);
+            TickService.Register(this);
+            if (!healthSubscribed && enemyData != null)
+            {
+                SubscribeHealth();
+                ApplyData(enemyData);
+                ResetPath();
+            }
+        }
+
+        private void OnDisable()
+        {
+            TickService.Unregister(this);
+            Deactivate();
         }
 
         private void MoveAlongPath(float deltaTime)
@@ -155,7 +181,7 @@ namespace TD.Gameplay.Enemies
                 reachedGoal = true;
                 PathProgress = 1f;
                 EnemyReachedGoal?.Invoke(this);
-                Destroy(gameObject);
+                ReleaseToPool();
                 return;
             }
 
@@ -223,26 +249,16 @@ namespace TD.Gameplay.Enemies
             UpdateProgress();
         }
 
-        private void SubscribeHealth()
-        {
-            if (health == null)
-            {
-                return;
-            }
-
-            health.HealthChanged += OnHealthChanged;
-            health.Died += OnDied;
-        }
-
         private void UnsubscribeHealth()
         {
-            if (health == null)
+            if (health == null || !healthSubscribed)
             {
                 return;
             }
 
             health.HealthChanged -= OnHealthChanged;
             health.Died -= OnDied;
+            healthSubscribed = false;
         }
 
         private void OnHealthChanged(Health sender, int current, int max)
@@ -253,7 +269,32 @@ namespace TD.Gameplay.Enemies
         private void OnDied(Health sender)
         {
             EnemyDied?.Invoke(this);
-            Destroy(gameObject);
+            ReleaseToPool();
+        }
+
+        private void SubscribeHealth()
+        {
+            if (health == null || healthSubscribed)
+            {
+                return;
+            }
+
+            health.HealthChanged += OnHealthChanged;
+            health.Died += OnDied;
+            healthSubscribed = true;
+        }
+
+        private void ReleaseToPool()
+        {
+            UnsubscribeHealth();
+            if (owningPool != null)
+            {
+                owningPool.Release(this);
+            }
+            else
+            {
+                gameObject.SetActive(false);
+            }
         }
     }
 }
