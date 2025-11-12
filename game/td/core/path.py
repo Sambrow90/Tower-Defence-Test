@@ -2,6 +2,36 @@ import random
 from collections import deque
 
 
+def _bfs(adjacency, start):
+    queue = deque([start])
+    parent = {start: None}
+    dist = {start: 0}
+    while queue:
+        cell = queue.popleft()
+        for nb in adjacency[cell]:
+            if nb not in parent:
+                parent[nb] = cell
+                dist[nb] = dist[cell] + 1
+                queue.append(nb)
+    return parent, dist
+
+
+def _farthest_node(adjacency, start):
+    parent, dist = _bfs(adjacency, start)
+    farthest = max(dist, key=dist.get)
+    return farthest, dist[farthest], parent
+
+
+def _reconstruct_path(parent, end):
+    path = []
+    cur = end
+    while cur is not None:
+        path.append(cur)
+        cur = parent[cur]
+    path.reverse()
+    return path
+
+
 def _neighbors(cell, cols, rows):
     x, y = cell
     if x > 0:
@@ -51,28 +81,30 @@ def _generate_maze(cols, rows, rng):
     return adjacency, start, goal
 
 
-def _shortest_path(adjacency, start, goal):
-    queue = deque([start])
-    came_from = {start: None}
-    while queue:
-        cell = queue.popleft()
-        if cell == goal:
-            break
-        for nb in adjacency[cell]:
-            if nb not in came_from:
-                came_from[nb] = cell
-                queue.append(nb)
+def _longest_path_from_left_to_right(adjacency, cols, rows):
+    left_candidates = [(0, r) for r in range(rows)]
+    best_path = []
+    for start in left_candidates:
+        parent, dist = _bfs(adjacency, start)
+        best_end = None
+        best_dist = -1
+        for cell, d in dist.items():
+            if cell[0] == cols - 1 and d > best_dist:
+                best_dist = d
+                best_end = cell
+        if best_end is None:
+            continue
+        candidate = _reconstruct_path(parent, best_end)
+        if len(candidate) > len(best_path):
+            best_path = candidate
+    return best_path
 
-    if goal not in came_from:
-        return [start]
 
-    path = []
-    cur = goal
-    while cur is not None:
-        path.append(cur)
-        cur = came_from[cur]
-    path.reverse()
-    return path
+def _maze_diameter(adjacency):
+    seed = next(iter(adjacency))
+    farthest, _, _ = _farthest_node(adjacency, seed)
+    other, _, parent = _farthest_node(adjacency, farthest)
+    return _reconstruct_path(parent, other)
 
 
 def build_default_path_pixels(tile, viewport):
@@ -85,25 +117,63 @@ def build_default_path_pixels(tile, viewport):
 
     left, bottom, w, h = viewport
     usable_w = int(w * 0.75)
-    cols = max(12, max(1, usable_w // tile))
-    rows = max(14, max(1, int(h // tile)))
+    cols = max(14, max(1, usable_w // tile))
+    rows = max(16, max(1, int(h // tile)))
 
     rng = random.Random()
-    min_length = max(cols + rows // 2, int(cols * 1.1))
-    best_path = None
+    total_cells = cols * rows
+    min_length = max(int(total_cells * 0.66), cols + rows)
+    min_x_cover = 0.9 if cols >= 18 else 0.75
+    min_y_cover = 0.6
+
+    best_lr_path = []
+    best_lr_score = -1
+    best_any_path = []
+    best_any_score = -1
     path_cells = None
-    for _ in range(64):
-        adjacency, start, goal = _generate_maze(cols, rows, rng)
-        candidate = _shortest_path(adjacency, start, goal)
-        if len(candidate) != len(set(candidate)):
+    fallback_path = None
+    for _ in range(160):
+        adjacency, _, _ = _generate_maze(cols, rows, rng)
+        candidate = _longest_path_from_left_to_right(adjacency, cols, rows)
+        if not candidate:
+            candidate = _maze_diameter(adjacency)
+
+        unique_cells = len(set(candidate))
+        if unique_cells < len(candidate):
             continue
-        if len(candidate) >= min_length:
+
+        fallback_path = candidate
+
+        coverage_x = len({x for x, _ in candidate}) / max(1, cols)
+        coverage_y = len({y for _, y in candidate}) / max(1, rows)
+        score = unique_cells + coverage_x * cols + coverage_y * rows
+
+        if (
+            unique_cells >= min_length
+            and coverage_x >= min_x_cover
+            and coverage_y >= min_y_cover
+            and candidate[0][0] == 0
+            and candidate[-1][0] == cols - 1
+        ):
             path_cells = candidate
             break
-        if not best_path or len(candidate) > len(best_path):
-            best_path = candidate
+
+        if candidate and candidate[0][0] == 0 and candidate[-1][0] == cols - 1:
+            if score > best_lr_score:
+                best_lr_score = score
+                best_lr_path = candidate
+
+        if score > best_any_score:
+            best_any_score = score
+            best_any_path = candidate
+
     if path_cells is None:
-        path_cells = best_path if best_path else candidate
+        if best_lr_path:
+            path_cells = best_lr_path
+        elif best_any_path:
+            path_cells = best_any_path
+        else:
+            path_cells = fallback_path if fallback_path else []
 
     path_pixels = []
     for gx, gy in path_cells:

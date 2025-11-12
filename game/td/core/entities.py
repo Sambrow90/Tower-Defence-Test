@@ -12,9 +12,11 @@ class Enemy:
         self.anim = 0.0
         self.slow_factor = 1.0
         self.slow_timer = 0.0
+        self.hit_flash = 0.0
 
     def take_damage(self, dmg):
         self.hp -= dmg
+        self.hit_flash = 0.28
         if self.hp <= 0:
             self.alive = False
 
@@ -41,6 +43,8 @@ class Enemy:
         speed = self.speed * self.slow_factor
         self.x += dirx * speed * dt
         self.y += diry * speed * dt
+        if self.hit_flash > 0.0:
+            self.hit_flash = max(0.0, self.hit_flash - dt)
         if self.slow_timer > 0.0:
             self.slow_timer -= dt
             if self.slow_timer <= 0.0:
