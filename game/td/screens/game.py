@@ -36,12 +36,49 @@ class GameWidget(Widget):
             if linear:
                 tex.mag_filter = 'linear'
                 tex.min_filter = 'linear'
+            else:
+                tex.mag_filter = 'nearest'
+                tex.min_filter = 'nearest'
             return tex
 
         self.bg_tex = load_tex("assets", "textures", "background.png")
-        self.path_tex = load_tex("assets", "textures", "path.png")
-        self.enemy_tex = load_tex("assets", "textures", "enemy.png", wrap=False)
-        self.tower_tex = load_tex("assets", "textures", "tower.png", wrap=False)
+        mesh_tex = load_tex("assets", "textures", "path.png")
+        if mesh_tex:
+            region_size = min(mesh_tex.width, mesh_tex.height) // 3
+            x = int((mesh_tex.width - region_size) / 2)
+            y = int((mesh_tex.height - region_size) / 2)
+            self.path_tex = mesh_tex.get_region(x, y, region_size, region_size)
+            self.path_tex.wrap = 'repeat'
+            self.path_tex.mag_filter = 'linear'
+            self.path_tex.min_filter = 'linear'
+        else:
+            self.path_tex = None
+
+        self.tower_textures = {
+            "cannon": load_tex("assets", "textures", "tower_cannon.png", linear=False, wrap=False),
+            "slow": load_tex("assets", "textures", "tower_slow.png", linear=False, wrap=False),
+        }
+        self.tower_elite_tex = load_tex("assets", "textures", "tower_elite.png", linear=False, wrap=False)
+
+        enemy_sheet = load_tex("assets", "animations", "enemy_walk.png", linear=False, wrap=False)
+        self.enemy_frames = None
+        if enemy_sheet:
+            self.enemy_frames = {}
+            cols = 8
+            rows = 4
+            frame_w = enemy_sheet.width // cols
+            frame_h = enemy_sheet.height // rows
+            directions = ["south", "west", "east", "north"]
+            for row, direction in enumerate(directions):
+                y = enemy_sheet.height - (row + 1) * frame_h
+                frames = []
+                for col in range(cols):
+                    region = enemy_sheet.get_region(col * frame_w, y, frame_w, frame_h)
+                    region.mag_filter = 'nearest'
+                    region.min_filter = 'nearest'
+                    frames.append(region)
+                self.enemy_frames[direction] = frames
+
         self.projectile_tex = load_tex("assets", "animations", "projectile.gif", wrap=False)
         self.explosion_tex = load_tex("assets", "animations", "explosion.gif", wrap=False)
 
@@ -50,6 +87,7 @@ class GameWidget(Widget):
         self.selected_tower = None
         self.shot_effects = []
         self.explosions = []
+        self.enemy_states = {}
 
         self._music = SoundLoader.load(resource_path("assets", "music", "loop.mp3"))
         if self._music:
@@ -108,8 +146,10 @@ class GameWidget(Widget):
                 px = left + gx * self.world.tile_size
                 py = bottom + gy * self.world.tile_size
                 if self.path_tex:
+                    Color(1, 1, 1, 0.9)
                     Rectangle(texture=self.path_tex, pos=(px, py),
                               size=(self.world.tile_size, self.world.tile_size))
+                    Color(1, 1, 1, 1)
                 else:
                     Color(0.35, 0.26, 0.18, 1)
                     Rectangle(pos=(px, py), size=(self.world.tile_size, self.world.tile_size))
@@ -118,36 +158,67 @@ class GameWidget(Widget):
             # Towers
             for t in self.world.towers:
                 col = self.tower_colors.get(t.tower_type, (1, 1, 1))
-                scale = 1.0 + 0.05 * (t.level - 1) + 0.08 * math.sin(t.anim * 3)
-                base = self.world.tile_size * 0.95
-                size = base * scale
-                if self.tower_tex:
+                base = self.world.tile_size * 0.9
+                scale = 1.0 + 0.06 * (t.level - 1) + 0.06 * math.sin(t.anim * 3)
+                height = base * scale
+                texture = self.tower_textures.get(t.tower_type)
+                Color(0, 0, 0, 0.22)
+                shadow_size = (self.world.tile_size * 0.82, self.world.tile_size * 0.4)
+                Ellipse(pos=(t.x - shadow_size[0]/2, t.y - shadow_size[1]/2 - 4), size=shadow_size)
+                if texture:
+                    aspect = texture.width / texture.height if texture.height else 1.0
+                    width = height * aspect
                     Color(1, 1, 1, 1)
-                    Rectangle(texture=self.tower_tex, pos=(t.x - size/2, t.y - size/2), size=(size, size))
+                    Rectangle(texture=texture, pos=(t.x - width/2, t.y - height/2), size=(width, height))
                 else:
+                    width = height
                     Color(*col, 1)
-                    Rectangle(pos=(t.x - size/2, t.y - size/2), size=(size, size))
+                    Rectangle(pos=(t.x - width/2, t.y - height/2), size=(width, height))
+
+                if t.level >= 4 and self.tower_elite_tex:
+                    elite = self.tower_elite_tex
+                    elite_width = width * 1.05
+                    elite_height = height * 1.05
+                    Color(1, 1, 1, 0.65)
+                    Rectangle(texture=elite, pos=(t.x - elite_width/2, t.y - elite_height/2),
+                              size=(elite_width, elite_height))
+
+                if t.level > 1:
+                    Color(1.0, 0.84, 0.2, 0.28)
+                    ring = self.world.tile_size * (0.5 + 0.12 * (t.level - 1))
+                    Ellipse(pos=(t.x - ring, t.y - ring), size=(ring * 2, ring * 2))
                 if self.selected_tower is t:
-                    Color(1, 1, 0, 0.6)
-                    Rectangle(pos=(t.x - size/2 - 2, t.y - size/2 - 2), size=(size + 4, size + 4))
+                    Color(0.55, 0.85, 1.0, 0.85)
+                    Rectangle(pos=(t.x - width/2 - 3, t.y - height/2 - 3), size=(width + 6, height + 6))
                 Color(1, 1, 1, 1)
 
-            # Enemies with small health bar
+            # Enemies with animation and health bar
             for e in self.world.enemies:
                 col = self.enemy_colors.get(e.enemy_type, (1, 1, 1))
-                offset = 2 * math.sin(e.anim * 6)
-                size = self.world.tile_size * 0.85
-                if self.enemy_tex:
+                state = self.enemy_states.get(id(e))
+                frame = None
+                if state and self.enemy_frames:
+                    frames = self.enemy_frames.get(state["dir"], [])
+                    if frames:
+                        frame = frames[state["frame"] % len(frames)]
+                Color(0, 0, 0, 0.25)
+                shadow_size = (self.world.tile_size * 0.75, self.world.tile_size * 0.32)
+                Ellipse(pos=(e.x - shadow_size[0]/2, e.y - shadow_size[1]/2 - 3), size=shadow_size)
+                if frame:
+                    sprite_size = self.world.tile_size * 1.2
                     Color(1, 1, 1, 1)
-                    Rectangle(texture=self.enemy_tex, pos=(e.x - size/2, e.y - size/2 + offset), size=(size, size))
+                    Rectangle(texture=frame, pos=(e.x - sprite_size/2, e.y - sprite_size/2), size=(sprite_size, sprite_size))
                 else:
+                    offset = 2 * math.sin(e.anim * 6)
+                    size = self.world.tile_size * 0.9
                     Color(*col, 1)
                     Ellipse(pos=(e.x - size/2, e.y - size/2 + offset), size=(size, size))
                 hp_frac = max(0.0, e.hp / e.max_hp)
-                Color(0.2, 0.0, 0.0, 1)
-                Rectangle(pos=(e.x - size/2, e.y + size/2 + 4 + offset), size=(size, 4))
-                Color(0.8, 0.0, 0.0, 1)
-                Rectangle(pos=(e.x - size/2, e.y + size/2 + 4 + offset), size=(size * hp_frac, 4))
+                bar_width = self.world.tile_size * 0.9
+                Color(0.12, 0.05, 0.02, 1)
+                Rectangle(pos=(e.x - bar_width/2, e.y + self.world.tile_size * 0.55), size=(bar_width, 6))
+                Color(0.85, 0.1, 0.18, 1)
+                Rectangle(pos=(e.x - bar_width/2, e.y + self.world.tile_size * 0.55), size=(bar_width * hp_frac, 6))
                 Color(1, 1, 1, 1)
 
             # Projectile trails
@@ -193,6 +264,41 @@ class GameWidget(Widget):
             blast["progress"] = blast["time"] / blast["duration"]
             if blast["progress"] >= 1.0:
                 self.explosions.remove(blast)
+
+        if self.enemy_frames:
+            active_ids = set()
+            for enemy in self.world.enemies:
+                key = id(enemy)
+                active_ids.add(key)
+                state = self.enemy_states.get(key)
+                if state is None:
+                    state = {
+                        "frame": 0,
+                        "time": 0.0,
+                        "dir": "south",
+                        "pos": (enemy.x, enemy.y),
+                    }
+                    self.enemy_states[key] = state
+                else:
+                    prev_x, prev_y = state["pos"]
+                    dx = enemy.x - prev_x
+                    dy = enemy.y - prev_y
+                    if abs(dx) + abs(dy) > 0.1:
+                        if abs(dx) > abs(dy):
+                            state["dir"] = "east" if dx > 0 else "west"
+                        else:
+                            state["dir"] = "north" if dy > 0 else "south"
+                    state["pos"] = (enemy.x, enemy.y)
+                    move_mag = (dx * dx + dy * dy) ** 0.5
+                    state["time"] += dt + move_mag * 0.015
+                    if state["time"] >= 0.12:
+                        state["time"] -= 0.12
+                        frames = self.enemy_frames.get(state["dir"], [])
+                        if frames:
+                            state["frame"] = (state["frame"] + 1) % len(frames)
+            for key in list(self.enemy_states.keys()):
+                if key not in active_ids:
+                    self.enemy_states.pop(key, None)
 
     def play_shoot(self, tower, enemy):
         if self.sfx_shoot:

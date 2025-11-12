@@ -2,9 +2,10 @@
 
 Assets are intentionally excluded from version control because the
 continuous-integration environment cannot transmit binary blobs.  This
-module downloads the freely licensed pygame example art/audio plus the
-MedievalSharp font from Google Fonts and stores them under
-``game/td/assets``.
+module downloads the freely licensed Proper Pixel Art scenery, character
+animations from the Universal LPC spritesheet project, the pygame
+placeholder audio, and the MedievalSharp font from Google Fonts, writing
+everything beneath ``game/td/assets``.
 """
 
 from __future__ import annotations
@@ -28,23 +29,34 @@ AssetDef = Dict[str, object]
 ASSET_DEFINITIONS: Sequence[AssetDef] = (
     {
         "dest": ("assets", "textures", "background.png"),
-        "url": "https://raw.githubusercontent.com/pygame/pygame/main/examples/data/city.png",
-        "sha256": "73436eda8ef1ed09af18c0e60c268f9e1bc9f2d3cdba0b8a2a923f67e35f438d",
+        "url": "https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/refs/heads/main/assets/mountain/mountain.png",
+        "sha256": "68ca10292481e3c545b8ee3e1b6da3e31d677a0d572b398aa197c73dacb6a5a2",
     },
     {
         "dest": ("assets", "textures", "path.png"),
-        "url": "https://raw.githubusercontent.com/pygame/pygame/main/examples/data/brick.png",
-        "sha256": "2bf9ac84ad1a2fcd67cce8c0a2b4d7c8fa6cea7f66be87cb78e5855c5a558d80",
+        "url": "https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/refs/heads/main/assets/mountain/mesh.png",
+        "sha256": "34c68759b649081317274215d293a89effcfad91bb359c0e9ce735365a7f4048",
     },
     {
-        "dest": ("assets", "textures", "tower.png"),
-        "url": "https://raw.githubusercontent.com/pygame/pygame/main/examples/data/alien1.png",
-        "sha256": "7de9b32ecb15ee81af4f74b6b72be2caaeea3b7d907e1043b4c391dc434108bb",
+        "dest": ("assets", "textures", "tower_cannon.png"),
+        "url": "https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/refs/heads/main/assets/anchor/anchor.png",
+        "sha256": "fea329b096f57de5dbf5fb9f098e1666e3cfa12b9598918012b620e5b13e2be4",
     },
     {
-        "dest": ("assets", "textures", "enemy.png"),
-        "url": "https://raw.githubusercontent.com/pygame/pygame/main/examples/data/alien2.png",
-        "sha256": "14a1980c8d85041475679e812e7df9ecf35f877f8cdfc8002694902fc0692986",
+        "dest": ("assets", "textures", "tower_slow.png"),
+        "url": "https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/refs/heads/main/assets/ash/ash.png",
+        "sha256": "3c8fa4ccb034d7a14cf77b34289eebac7c623a438db864e825b230af44b4a82e",
+    },
+    {
+        "dest": ("assets", "textures", "tower_elite.png"),
+        "url": "https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/refs/heads/main/assets/pumpkin/pumpkin.png",
+        "sha256": "11685f5d9f244dfffa85b98ce7dc41b11876d2a1007c19f1603f0495b593287f",
+        "optional": True,
+    },
+    {
+        "dest": ("assets", "animations", "enemy_walk.png"),
+        "url": "https://raw.githubusercontent.com/jrconway3/Universal-LPC-spritesheet/refs/heads/master/_build/_base/female/all.png",
+        "sha256": "2bfe216ed3f095db7711c305565b4735330850d5a170b836b98884398ef58f46",
     },
     {
         "dest": ("assets", "animations", "projectile.gif"),

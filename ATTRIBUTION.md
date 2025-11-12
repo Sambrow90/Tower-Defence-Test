@@ -4,11 +4,15 @@ Binary assets are intentionally excluded from version control.  They are downloa
 running `PYTHONPATH=game python -m td.tools.assets` (automatically executed on application start-up)
 and originate from the following freely licensed sources:
 
+- [Proper Pixel Art](https://github.com/KennethJAllen/proper-pixel-art) by Kenneth J. Allen (MIT):
+  - `assets/mountain/mountain.png` → `assets/textures/background.png`
+  - `assets/mountain/mesh.png` → `assets/textures/path.png`
+  - `assets/anchor/anchor.png` → `assets/textures/tower_cannon.png`
+  - `assets/ash/ash.png` → `assets/textures/tower_slow.png`
+  - `assets/pumpkin/pumpkin.png` → `assets/textures/tower_elite.png`
+- [Universal LPC Spritesheet](https://github.com/jrconway3/Universal-LPC-spritesheet) (CC-BY-SA 3.0/GPLv3 dual licence):
+  - `_build/_base/female/all.png` → `assets/animations/enemy_walk.png`
 - [pygame example data](https://github.com/pygame/pygame/tree/main/examples/data) (LGPL):
-  - `city.png` → `assets/textures/background.png`
-  - `brick.png` → `assets/textures/path.png`
-  - `alien1.png` → `assets/textures/tower.png`
-  - `alien2.png` → `assets/textures/enemy.png`
   - `shot.gif` → `assets/animations/projectile.gif`
   - `explosion1.gif` → `assets/animations/explosion.gif`
   - `blue.gif` → `assets/ui/button_normal.gif` and `assets/ui/button_down.gif`
