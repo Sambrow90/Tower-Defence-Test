@@ -14,6 +14,7 @@ namespace TD.Managers
         public event Action<TowerBehaviour> TowerPlaced;
         public event Action<TowerBehaviour> TowerUpgraded;
         public event Action<TowerBehaviour> TowerRemoved;
+        public event Action<int> CurrencyChanged;
 
         [SerializeField] private Transform towerRoot;
         [SerializeField] private GridManager gridManager;
@@ -28,7 +29,41 @@ namespace TD.Managers
 
         public void Initialize()
         {
-            CurrentCurrency = startingCurrency;
+            SetCurrency(startingCurrency);
+        }
+
+        public void SetCurrency(int amount)
+        {
+            CurrentCurrency = Mathf.Max(0, amount);
+            CurrencyChanged?.Invoke(CurrentCurrency);
+        }
+
+        public void AddCurrency(int amount)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            CurrentCurrency += amount;
+            CurrencyChanged?.Invoke(CurrentCurrency);
+        }
+
+        public bool TryConsumeCurrency(int amount)
+        {
+            if (amount <= 0)
+            {
+                return true;
+            }
+
+            if (CurrentCurrency < amount)
+            {
+                return false;
+            }
+
+            CurrentCurrency -= amount;
+            CurrencyChanged?.Invoke(CurrentCurrency);
+            return true;
         }
 
         public bool CanPlaceTower(string towerId, Vector3 position)
@@ -89,11 +124,6 @@ namespace TD.Managers
                 return false;
             }
 
-            if (CurrentCurrency < definition.BuildCost)
-            {
-                return false;
-            }
-
             if (!gridManager.TryReserveTile(gridPosition))
             {
                 return false;
@@ -116,7 +146,16 @@ namespace TD.Managers
             activeTowers.Add(tower);
             towerPositions[tower] = gridPosition;
 
-            CurrentCurrency -= definition.BuildCost;
+            if (!TryConsumeCurrency(definition.BuildCost))
+            {
+                Debug.LogWarning("Failed to consume currency after placing tower. Removing tower instance.");
+                activeTowers.Remove(tower);
+                towerPositions.Remove(tower);
+                Destroy(tower.gameObject);
+                gridManager.ReleaseTile(gridPosition);
+                return false;
+            }
+
             TowerPlaced?.Invoke(tower);
             return true;
         }
