@@ -30,9 +30,9 @@ class World:
         self.path_pixels, self.path_grid = build_default_path_pixels(self.tile_size, viewport)
         self.blocked = set(self.path_grid)  # can't place towers on path
 
-        # Callbacks for SFX
-        self.cb_shoot = shoot_cb if shoot_cb else (lambda: None)
-        self.cb_death = death_cb if death_cb else (lambda: None)
+        # Callbacks for SFX/visual feedback
+        self.cb_shoot = shoot_cb if shoot_cb else (lambda *args, **kwargs: None)
+        self.cb_death = death_cb if death_cb else (lambda *args, **kwargs: None)
 
         # Spawn handling
         self._spawn_timer = 0.0

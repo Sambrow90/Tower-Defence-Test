@@ -1,14 +1,19 @@
 #:kivy 2.3.0
+#:import resource_path td.util.resources.resource_path
+#:import dp kivy.metrics.dp
 
 <GameScreen>:
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, 1
+        Rectangle:
+            source: resource_path("assets", "textures", "background.png") if app.assets_ready else ''
+            pos: self.pos
+            size: self.size
     BoxLayout:
         orientation: 'horizontal'
-        canvas.before:
-            Color:
-                rgba: 0.05, 0.05, 0.08, 1
-            Rectangle:
-                pos: self.pos
-                size: self.size
+        padding: dp(12)
+        spacing: dp(12)
 
         # Game area (75% width)
         GameWidget:
@@ -18,52 +23,65 @@
         # HUD
         BoxLayout:
             orientation: 'vertical'
-            padding: '8dp'
-            spacing: '8dp'
+            padding: dp(16)
+            spacing: dp(12)
             size_hint_x: 0.25
+            canvas.before:
+                Color:
+                    rgba: (1, 1, 1, 0.95) if app.assets_ready else (0.1, 0.12, 0.18, 0.92)
+                Rectangle:
+                    source: resource_path("assets", "ui", "panel.gif") if app.assets_ready else ''
+                    pos: self.pos
+                    size: self.size
 
-            Label:
-                text: "HUD"
-                font_size: '22sp'
+            MenuTitle:
+                text: "Status"
+                font_size: '32sp'
                 size_hint_y: None
-                height: '36dp'
+                height: dp(48)
 
-            Label:
+            MenuBody:
                 text: "Gold: " + str(root.gold)
                 size_hint_y: None
-                height: '26dp'
-            Label:
+                height: dp(28)
+            MenuBody:
                 text: "Leben: " + str(root.lives)
                 size_hint_y: None
-                height: '26dp'
-            Label:
+                height: dp(28)
+            MenuBody:
                 text: "Welle: " + str(root.wave)
                 size_hint_y: None
-                height: '26dp'
-            Label:
+                height: dp(28)
+            MenuBody:
                 text: "Nächste Welle in: " + ("{:.1f}s".format(root.next_wave_in) if root.next_wave_in > 0 else "läuft")
                 size_hint_y: None
-                height: '26dp'
+                height: dp(28)
 
-            Button:
+            FancyButton:
                 text: "Pause"
                 size_hint_y: None
-                height: '40dp'
-                on_release: root.pause()
-            Button:
+                height: dp(56)
+                on_release:
+                    app.play_ui_click()
+                    root.pause()
+            FancyButton:
                 text: "Weiter"
                 size_hint_y: None
-                height: '40dp'
-                on_release: root.resume()
-            Button:
+                height: dp(56)
+                on_release:
+                    app.play_ui_click()
+                    root.resume()
+            FancyButton:
                 text: "Neustart"
                 size_hint_y: None
-                height: '40dp'
-                on_release: root.restart()
+                height: dp(56)
+                on_release:
+                    app.play_ui_click()
+                    root.restart()
 
-            Label:
+            MenuBody:
                 text: root.status
                 size_hint_y: None
-                height: '40dp'
+                height: dp(48)
 
 <GameWidget>:
