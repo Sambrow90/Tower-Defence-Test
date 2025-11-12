@@ -1,138 +1,259 @@
 using System;
 using UnityEngine;
-using TD.Managers;
+using TD.Gameplay.Data;
+using TD.Systems;
 
 namespace TD.Gameplay.Enemies
 {
     /// <summary>
-    /// Base behaviour for enemy navigation and combat interactions.
+    /// Handles movement and health for an enemy instance based on EnemyData.
     /// </summary>
-    public abstract class EnemyBehaviour : MonoBehaviour
+    public class EnemyBehaviour : MonoBehaviour
     {
-        public event Action<EnemyBehaviour> EnemyKilled;
+        public event Action<EnemyBehaviour> EnemyDied;
         public event Action<EnemyBehaviour> EnemyReachedGoal;
-        public event Action<int> HealthChanged;
+        public event Action<EnemyBehaviour, int, int> EnemyHealthChanged;
 
-        [SerializeField] private string enemyId;
-        [SerializeField] private int maxHealth;
-        [SerializeField] private float moveSpeed;
+        [SerializeField] private EnemyData enemyData;
         [SerializeField] private WaypointPath waypointPath;
-        [SerializeField] private float waypointArrivalDistance = 0.05f;
+        [SerializeField] private Transform hitPoint;
+        [SerializeField, Min(0.01f)] private float waypointArrivalDistance = 0.1f;
 
-        protected int CurrentHealth { get; private set; }
-        protected EnemyDefinition Definition { get; private set; }
-        protected WaveManager WaveManager { get; private set; }
+        private Health health;
+        private int previousWaypointIndex;
+        private int currentWaypointIndex;
+        private bool reachedGoal;
 
-        public string EnemyId => enemyId;
-        public int MaxHealth => maxHealth;
-        public float MoveSpeed => moveSpeed;
+        public EnemyData Data => enemyData;
+        public bool IsAlive => health != null && !health.IsDead;
+        public Vector3 AimPosition => hitPoint != null ? hitPoint.position : transform.position;
+        public float PathProgress { get; private set; }
+        public int CurrentHealth => health != null ? health.CurrentHealth : 0;
 
-        protected virtual void Awake()
+        private void Awake()
         {
-            waypointPath ??= GetComponentInParent<WaypointPath>();
-            CurrentHealth = maxHealth;
-            currentWaypointIndex = 0;
-            hasReachedGoal = false;
-        }
-
-        public virtual void Initialize(EnemyDefinition definition, WaveManager waveManager)
-        {
-            Definition = definition;
-            WaveManager = waveManager;
-
-            if (definition != null)
+            health = GetComponent<Health>();
+            if (health == null)
             {
-                enemyId = definition.EnemyId;
-                maxHealth = definition.MaxHealth;
-                moveSpeed = definition.MoveSpeed;
+                health = gameObject.AddComponent<Health>();
             }
 
-            CurrentHealth = maxHealth;
-            HealthChanged?.Invoke(CurrentHealth);
+            if (waypointPath == null)
+            {
+                waypointPath = GetComponentInParent<WaypointPath>();
+            }
+        }
+
+        private void OnEnable()
+        {
+            SubscribeHealth();
+            ApplyData(enemyData);
             ResetPath();
         }
 
-        public virtual void Tick(float deltaTime)
+        private void OnDisable()
         {
-            if (hasReachedGoal || waypointPath == null)
+            UnsubscribeHealth();
+        }
+
+        public void ApplyData(EnemyData data)
+        {
+            if (data == null)
+            {
+                Debug.LogError($"{nameof(EnemyBehaviour)} on {name} has no EnemyData assigned.");
+                return;
+            }
+
+            enemyData = data;
+            if (health == null)
             {
                 return;
             }
 
-            if (waypointPath.Waypoints.Count == 0)
+            health.Initialize(enemyData.MaxHealth);
+            reachedGoal = false;
+            UpdateProgress();
+        }
+
+        public void Tick(float deltaTime)
+        {
+            if (!isActiveAndEnabled || reachedGoal || enemyData == null || waypointPath == null)
             {
                 return;
             }
 
-            var targetPosition = waypointPath.GetWaypointPosition(currentWaypointIndex);
-            var toTarget = targetPosition - transform.position;
-
-            if (toTarget.sqrMagnitude <= waypointArrivalDistance * waypointArrivalDistance)
-            {
-                if (!waypointPath.Loop && currentWaypointIndex >= waypointPath.Waypoints.Count - 1)
-                {
-                    hasReachedGoal = true;
-                    OnGoalReached();
-                    return;
-                }
-
-                currentWaypointIndex = waypointPath.GetNextIndex(currentWaypointIndex);
-                targetPosition = waypointPath.GetWaypointPosition(currentWaypointIndex);
-                toTarget = targetPosition - transform.position;
-            }
-
-            if (toTarget.sqrMagnitude > 0.0001f)
-            {
-                var movement = toTarget.normalized * moveSpeed * deltaTime;
-                if (movement.sqrMagnitude > toTarget.sqrMagnitude)
-                {
-                    movement = toTarget;
-                }
-
-                transform.position += movement;
-            }
+            MoveAlongPath(deltaTime);
         }
 
-        public virtual void ApplyDamage(int amount)
+        public void ReceiveDamage(int amount, DamageType damageType)
         {
-            if (amount <= 0 || CurrentHealth <= 0)
+            if (!IsAlive)
             {
                 return;
             }
 
-            CurrentHealth = Mathf.Max(0, CurrentHealth - amount);
-            HealthChanged?.Invoke(CurrentHealth);
+            var mitigated = CalculateMitigatedDamage(amount, damageType);
+            health.TakeDamage(mitigated);
+        }
 
-            if (CurrentHealth <= 0)
+        public void ForceKill()
+        {
+            if (health != null)
             {
-                OnKilled();
+                health.Kill();
             }
         }
 
-        protected virtual void OnKilled()
-        {
-            EnemyKilled?.Invoke(this);
-            Destroy(gameObject);
-        }
-
-        protected virtual void OnGoalReached()
-        {
-            EnemyReachedGoal?.Invoke(this);
-            Destroy(gameObject);
-        }
-
-        protected virtual void Update()
+        private void Update()
         {
             Tick(Time.deltaTime);
         }
 
-        private void ResetPath()
+        private void MoveAlongPath(float deltaTime)
         {
-            hasReachedGoal = false;
-            currentWaypointIndex = 0;
+            var waypointCount = waypointPath?.Waypoints.Count ?? 0;
+            if (waypointCount <= 0)
+            {
+                return;
+            }
+
+            var remainingDistance = enemyData.MoveSpeed * deltaTime;
+            var safety = 32;
+            while (remainingDistance > 0f && safety-- > 0 && !reachedGoal)
+            {
+                var targetPosition = waypointPath.GetWaypointPosition(currentWaypointIndex);
+                var toTarget = targetPosition - transform.position;
+                var distance = toTarget.magnitude;
+
+                if (distance <= Mathf.Max(waypointArrivalDistance, 0.001f))
+                {
+                    AdvanceWaypoint();
+                    continue;
+                }
+
+                var step = Mathf.Min(distance, remainingDistance);
+                transform.position += toTarget.normalized * step;
+                remainingDistance -= step;
+                UpdateProgress();
+
+                if (step < distance)
+                {
+                    break;
+                }
+            }
         }
 
-        private int currentWaypointIndex;
-        private bool hasReachedGoal;
+        private void AdvanceWaypoint()
+        {
+            if (waypointPath == null)
+            {
+                return;
+            }
+
+            if (!waypointPath.Loop && currentWaypointIndex >= waypointPath.Waypoints.Count - 1)
+            {
+                reachedGoal = true;
+                PathProgress = 1f;
+                EnemyReachedGoal?.Invoke(this);
+                Destroy(gameObject);
+                return;
+            }
+
+            previousWaypointIndex = currentWaypointIndex;
+            currentWaypointIndex = waypointPath.GetNextIndex(currentWaypointIndex);
+            UpdateProgress();
+        }
+
+        private void UpdateProgress()
+        {
+            if (waypointPath == null || waypointPath.Waypoints.Count <= 1)
+            {
+                PathProgress = 0f;
+                return;
+            }
+
+            var prevPos = waypointPath.GetWaypointPosition(previousWaypointIndex);
+            var nextPos = waypointPath.GetWaypointPosition(currentWaypointIndex);
+            var totalSegments = waypointPath.Waypoints.Count - 1f;
+            var segmentLength = Vector3.Distance(prevPos, nextPos);
+            var travelledOnSegment = segmentLength <= 0f ? 0f : Vector3.Distance(prevPos, transform.position) / segmentLength;
+            travelledOnSegment = Mathf.Clamp01(travelledOnSegment);
+            PathProgress = (previousWaypointIndex + travelledOnSegment) / totalSegments;
+        }
+
+        private int CalculateMitigatedDamage(int amount, DamageType damageType)
+        {
+            if (enemyData == null)
+            {
+                return amount;
+            }
+
+            if (damageType == DamageType.True)
+            {
+                return amount;
+            }
+
+            var multiplier = 1f - enemyData.Armor;
+            foreach (var resistance in enemyData.Resistances)
+            {
+                if (resistance.DamageType == damageType)
+                {
+                    multiplier *= 1f - resistance.Reduction;
+                }
+            }
+
+            multiplier = Mathf.Clamp(multiplier, 0.05f, 1f);
+            var mitigated = Mathf.RoundToInt(amount * multiplier);
+            return Mathf.Max(1, mitigated);
+        }
+
+        private void ResetPath()
+        {
+            previousWaypointIndex = 0;
+            if (waypointPath != null && waypointPath.Waypoints.Count > 1)
+            {
+                currentWaypointIndex = 1;
+            }
+            else
+            {
+                currentWaypointIndex = 0;
+            }
+
+            reachedGoal = false;
+            UpdateProgress();
+        }
+
+        private void SubscribeHealth()
+        {
+            if (health == null)
+            {
+                return;
+            }
+
+            health.HealthChanged += OnHealthChanged;
+            health.Died += OnDied;
+        }
+
+        private void UnsubscribeHealth()
+        {
+            if (health == null)
+            {
+                return;
+            }
+
+            health.HealthChanged -= OnHealthChanged;
+            health.Died -= OnDied;
+        }
+
+        private void OnHealthChanged(Health sender, int current, int max)
+        {
+            EnemyHealthChanged?.Invoke(this, current, max);
+        }
+
+        private void OnDied(Health sender)
+        {
+            EnemyDied?.Invoke(this);
+            Destroy(gameObject);
+        }
     }
 }

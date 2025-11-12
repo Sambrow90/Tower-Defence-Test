@@ -1,111 +1,204 @@
 using System;
 using UnityEngine;
-using TD.Managers;
+using TD.Gameplay.Data;
 using TD.Gameplay.Enemies;
+using TD.Systems;
 
 namespace TD.Gameplay.Towers
 {
     /// <summary>
-    /// Base behaviour for tower logic decoupled from presentation.
+    /// Controls targeting and shooting for a tower instance using TowerData configuration.
     /// </summary>
-    public abstract class TowerBehaviour : MonoBehaviour
+    public class TowerBehaviour : MonoBehaviour
     {
-        public event Action<TowerBehaviour> TargetAcquired;
-        public event Action<TowerBehaviour> TargetLost;
+        public event Action<TowerBehaviour, EnemyBehaviour> TargetAcquired;
+        public event Action<TowerBehaviour, EnemyBehaviour> TargetLost;
         public event Action<TowerBehaviour> ShotFired;
 
-        [SerializeField] private string towerId;
-        [SerializeField] private float range;
-        [SerializeField] private float fireRate;
-        [SerializeField] private int baseDamage;
+        [SerializeField] private TowerData towerData;
+        [SerializeField] private Transform firePoint;
+        [SerializeField] private LayerMask enemyLayerMask = ~0;
+        [SerializeField, Min(0.02f)] private float retargetInterval = 0.1f;
 
-        protected EnemyBehaviour CurrentTarget { get; private set; }
-        protected float CooldownTimer { get; set; }
-        protected TowerDefinition Definition { get; private set; }
+        private static readonly Collider[] TargetBuffer = new Collider[32];
 
-        public string TowerId => towerId;
-        public float Range => range;
-        public float FireRate => fireRate;
-        public int BaseDamage => baseDamage;
+        private ObjectPool<ProjectileBehaviour> projectilePool;
+        private EnemyBehaviour currentTarget;
+        private float fireCooldown;
+        private float targetTimer;
 
-        protected virtual void Awake()
+        public TowerData Data => towerData;
+        public EnemyBehaviour CurrentTarget => currentTarget;
+
+        private void Awake()
         {
-            CooldownTimer = 0f;
+            if (towerData == null)
+            {
+                Debug.LogError($"{nameof(TowerBehaviour)} on {name} has no TowerData assigned.");
+                enabled = false;
+                return;
+            }
+
+            if (towerData.ProjectilePrefab == null)
+            {
+                Debug.LogError($"{nameof(TowerBehaviour)} on {name} is missing a projectile prefab in the assigned TowerData.");
+                enabled = false;
+                return;
+            }
+
+            projectilePool = new ObjectPool<ProjectileBehaviour>(towerData.ProjectilePrefab, towerData.ProjectilePoolSize, transform);
         }
 
-        protected virtual void Update()
+        private void OnEnable()
         {
-            if (CurrentTarget == null)
+            fireCooldown = 0f;
+            targetTimer = 0f;
+        }
+
+        /// <summary>
+        /// Compatibility hook for existing managers that expect to initialize towers after instantiation.
+        /// </summary>
+        public void Initialize(TD.Managers.TowerDefinition definition, TD.Managers.TowerManager manager)
+        {
+            if (towerData == null)
+            {
+                Debug.LogWarning($"Tower '{name}' was initialized without TowerData. Assign a TowerData asset in the inspector.");
+            }
+
+            fireCooldown = 0f;
+            targetTimer = 0f;
+        }
+
+        private void Update()
+        {
+            if (towerData == null)
             {
                 return;
             }
 
-            if (!CurrentTarget || Vector3.Distance(transform.position, CurrentTarget.transform.position) > range)
+            targetTimer -= Time.deltaTime;
+            if (targetTimer <= 0f)
+            {
+                targetTimer = retargetInterval;
+                RefreshTarget();
+            }
+
+            if (currentTarget == null || !IsTargetValid(currentTarget))
             {
                 ReleaseTarget();
                 return;
             }
 
-            if (CooldownTimer > 0f)
+            fireCooldown -= Time.deltaTime;
+            if (fireCooldown <= 0f)
             {
-                CooldownTimer -= Time.deltaTime;
-            }
-
-            if (CooldownTimer <= 0f)
-            {
-                Fire();
+                Shoot();
             }
         }
 
-        public virtual void Initialize(TowerDefinition definition, TowerManager manager)
+        private void RefreshTarget()
         {
-            Definition = definition;
+            var count = Physics.OverlapSphereNonAlloc(transform.position, towerData.Range, TargetBuffer, enemyLayerMask);
+            EnemyBehaviour bestCandidate = IsTargetValid(currentTarget) ? currentTarget : null;
+
+            for (var i = 0; i < count; i++)
+            {
+                if (TargetBuffer[i] == null)
+                {
+                    continue;
+                }
+
+                if (!TargetBuffer[i].TryGetComponent(out EnemyBehaviour enemy))
+                {
+                    continue;
+                }
+
+                if (!IsTargetValid(enemy))
+                {
+                    continue;
+                }
+
+                bestCandidate = SelectTarget(bestCandidate, enemy);
+            }
+
+            if (bestCandidate != null)
+            {
+                AcquireTarget(bestCandidate);
+            }
+            else
+            {
+                ReleaseTarget();
+            }
         }
 
-        public virtual void AcquireTarget(EnemyBehaviour enemy)
+        private bool IsTargetValid(EnemyBehaviour enemy)
         {
-            if (enemy == null)
+            if (enemy == null || !enemy.isActiveAndEnabled || !enemy.IsAlive)
+            {
+                return false;
+            }
+
+            var sqrRange = towerData.Range * towerData.Range;
+            return (enemy.transform.position - transform.position).sqrMagnitude <= sqrRange;
+        }
+
+        private EnemyBehaviour SelectTarget(EnemyBehaviour current, EnemyBehaviour candidate)
+        {
+            if (current == null)
+            {
+                return candidate;
+            }
+
+            switch (towerData.TargetPriority)
+            {
+                case TargetPriority.First:
+                    return candidate.PathProgress > current.PathProgress ? candidate : current;
+                case TargetPriority.Last:
+                    return candidate.PathProgress < current.PathProgress ? candidate : current;
+                case TargetPriority.Strongest:
+                    return candidate.CurrentHealth > current.CurrentHealth ? candidate : current;
+                default:
+                    return current;
+            }
+        }
+
+        private void AcquireTarget(EnemyBehaviour target)
+        {
+            if (currentTarget == target)
             {
                 return;
             }
 
-            CurrentTarget = enemy;
-            TargetAcquired?.Invoke(this);
+            ReleaseTarget();
+            currentTarget = target;
+            TargetAcquired?.Invoke(this, currentTarget);
         }
 
-        public virtual void ReleaseTarget()
+        private void ReleaseTarget()
         {
-            if (CurrentTarget == null)
+            if (currentTarget == null)
             {
                 return;
             }
 
-            CurrentTarget = null;
-            TargetLost?.Invoke(this);
+            TargetLost?.Invoke(this, currentTarget);
+            currentTarget = null;
         }
 
-        public virtual void Fire()
+        private void Shoot()
         {
-            if (CurrentTarget == null)
+            if (currentTarget == null)
             {
                 return;
             }
 
-            CurrentTarget.ApplyDamage(baseDamage);
+            var projectile = projectilePool.Get();
+            projectile.transform.position = firePoint != null ? firePoint.position : transform.position;
+            projectile.transform.rotation = firePoint != null ? firePoint.rotation : transform.rotation;
+            projectile.Launch(currentTarget, towerData.Damage, towerData.ProjectileSpeed, towerData.DamageType, projectilePool);
+
+            fireCooldown = towerData.FireRate > 0f ? 1f / towerData.FireRate : 0f;
             ShotFired?.Invoke(this);
-            CooldownTimer = FireRate > 0f ? 1f / FireRate : 0f;
-        }
-
-        public virtual void ApplyUpgrade(TowerUpgradeDefinition upgrade)
-        {
-            if (upgrade == null)
-            {
-                return;
-            }
-
-            baseDamage = Mathf.RoundToInt(baseDamage * upgrade.DamageModifier);
-            range *= upgrade.RangeModifier;
-            fireRate *= upgrade.FireRateModifier;
         }
     }
 }
