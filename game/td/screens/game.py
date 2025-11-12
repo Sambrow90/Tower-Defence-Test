@@ -5,7 +5,7 @@ from kivy.uix.screenmanager import Screen
 from kivy.uix.widget import Widget
 from kivy.properties import NumericProperty, StringProperty, ObjectProperty
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle, Ellipse
+from kivy.graphics import Color, Rectangle, Ellipse, Line
 from kivy.core.image import Image as CoreImage
 from kivy.core.audio import SoundLoader
 from kivy.logger import Logger
@@ -142,18 +142,45 @@ class GameWidget(Widget):
 
             # Path drawn as tiled pixel-art road
             left, bottom, _, _ = self.world.viewport
-            for (gx, gy) in self.world.path_grid:
-                px = left + gx * self.world.tile_size
-                py = bottom + gy * self.world.tile_size
+            tile = self.world.tile_size
+            inner_margin = tile * 0.18
+            edge_band = tile * 0.12
+            path_tiles = list(self.world.path_grid)
+            path_set = set(path_tiles)
+            for (gx, gy) in path_tiles:
+                px = left + gx * tile
+                py = bottom + gy * tile
+
+                Color(0.22, 0.18, 0.14, 1)
+                Rectangle(pos=(px, py), size=(tile, tile))
+
+                inner_pos = (px + inner_margin, py + inner_margin)
+                inner_size = (tile - 2 * inner_margin, tile - 2 * inner_margin)
                 if self.path_tex:
-                    Color(1, 1, 1, 0.9)
-                    Rectangle(texture=self.path_tex, pos=(px, py),
-                              size=(self.world.tile_size, self.world.tile_size))
-                    Color(1, 1, 1, 1)
+                    Color(1, 1, 1, 0.94)
+                    Rectangle(texture=self.path_tex, pos=inner_pos, size=inner_size)
                 else:
-                    Color(0.35, 0.26, 0.18, 1)
-                    Rectangle(pos=(px, py), size=(self.world.tile_size, self.world.tile_size))
-                    Color(1, 1, 1, 1)
+                    Color(0.7, 0.62, 0.54, 1)
+                    Rectangle(pos=inner_pos, size=inner_size)
+
+                Color(0.86, 0.8, 0.69, 0.7)
+                Ellipse(pos=(px + tile * 0.22, py + tile * 0.16), size=(tile * 0.56, tile * 0.6))
+
+                Color(0.14, 0.12, 0.09, 0.9)
+                Line(rectangle=(inner_pos[0], inner_pos[1], inner_size[0], inner_size[1]),
+                     width=max(1.2, tile * 0.05))
+
+                Color(0.16, 0.13, 0.1, 1)
+                if (gx, gy + 1) not in path_set:
+                    Rectangle(pos=(px, py + tile - edge_band), size=(tile, edge_band))
+                if (gx, gy - 1) not in path_set:
+                    Rectangle(pos=(px, py), size=(tile, edge_band))
+                if (gx - 1, gy) not in path_set:
+                    Rectangle(pos=(px, py), size=(edge_band, tile))
+                if (gx + 1, gy) not in path_set:
+                    Rectangle(pos=(px + tile - edge_band, py), size=(edge_band, tile))
+
+                Color(1, 1, 1, 1)
 
             # Towers
             for t in self.world.towers:
