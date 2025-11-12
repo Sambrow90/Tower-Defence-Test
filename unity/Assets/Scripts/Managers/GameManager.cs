@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using TD.Data;
 using TD.Systems;
 
 namespace TD.Managers
@@ -14,6 +15,7 @@ namespace TD.Managers
         public event Action<GameState> GameStateChanged;
         public event Action<int> PlayerLivesChanged;
         public event Action<int> PlayerCurrencyChanged;
+        public event Action<float> GameSpeedChanged;
 
         [SerializeField] private LevelManager levelManager;
         [SerializeField] private WaveManager waveManager;
@@ -21,10 +23,16 @@ namespace TD.Managers
         [SerializeField] private EnemyManager enemyManager;
         [SerializeField] private UIManager uiManager;
         [SerializeField] private SaveManager saveManager;
+        [SerializeField] private float defaultGameSpeed = 1f;
 
         public GameState CurrentState { get; private set; } = GameState.Bootstrapping;
         public int PlayerLives { get; private set; }
         public int PlayerCurrency { get; private set; }
+        public float CurrentGameSpeed { get; private set; } = 1f;
+        public bool IsPaused => CurrentState == GameState.Paused;
+
+        private bool isInitialized;
+        private float cachedSpeedBeforePause = 1f;
 
         private void Awake()
         {
@@ -40,47 +48,217 @@ namespace TD.Managers
 
         private void Start()
         {
-            // TODO: Initialize managers and load persistent data.
+            InitializeGame();
         }
 
         public void InitializeGame()
         {
-            // TODO: Set up initial state, load level data, and prepare systems.
+            if (isInitialized)
+            {
+                return;
+            }
+
+            isInitialized = true;
+
+            if (saveManager != null)
+            {
+                saveManager.Initialize();
+            }
+
+            if (towerManager != null)
+            {
+                towerManager.Initialize();
+                towerManager.CurrencyChanged += HandleTowerCurrencyChanged;
+            }
+
+            if (levelManager != null)
+            {
+                levelManager.LevelLoaded += HandleLevelLoaded;
+                levelManager.LevelStarted += HandleLevelStarted;
+                levelManager.LevelCompleted += HandleLevelCompleted;
+                levelManager.LevelFailed += HandleLevelFailed;
+            }
+
+            if (waveManager != null)
+            {
+                waveManager.WaveStarted += HandleWaveStarted;
+                waveManager.WaveCompleted += HandleWaveCompleted;
+                waveManager.AllWavesCompleted += HandleAllWavesCompleted;
+            }
+
+            if (uiManager != null)
+            {
+                uiManager.Initialize(this, levelManager, waveManager, towerManager, saveManager);
+            }
+
+            SetGameSpeed(defaultGameSpeed);
+            ChangeState(GameState.MainMenu);
         }
 
         public void StartGame()
         {
-            // TODO: Begin gameplay by starting level and waves.
+            if (levelManager == null)
+            {
+                Debug.LogWarning("GameManager cannot start game – LevelManager missing.");
+                return;
+            }
+
+            if (levelManager.CurrentLevel == null)
+            {
+                Debug.LogWarning("No level loaded. Load a level before calling StartGame().");
+                return;
+            }
+
+            levelManager.StartLevel();
         }
 
         public void PauseGame()
         {
-            // TODO: Pause gameplay and notify interested systems.
+            if (IsPaused)
+            {
+                return;
+            }
+
+            cachedSpeedBeforePause = CurrentGameSpeed;
+            Time.timeScale = 0f;
+            ChangeState(GameState.Paused);
         }
 
         public void ResumeGame()
         {
-            // TODO: Resume gameplay from a paused state.
+            if (!IsPaused)
+            {
+                return;
+            }
+
+            ChangeState(GameState.Playing);
+            SetGameSpeed(Mathf.Max(0.1f, cachedSpeedBeforePause));
         }
 
         public void EndGame(bool victory)
         {
-            // TODO: Handle game conclusion logic.
+            ChangeState(victory ? GameState.Victory : GameState.Defeat);
+
+            if (levelManager != null)
+            {
+                if (victory)
+                {
+                    levelManager.CompleteLevel();
+                }
+                else
+                {
+                    levelManager.FailLevel();
+                }
+            }
         }
 
         public void AddCurrency(int amount)
         {
-            // TODO: Update player currency and trigger events/UI updates.
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            PlayerCurrency += amount;
+            PlayerCurrencyChanged?.Invoke(PlayerCurrency);
+            towerManager?.AddCurrency(amount);
         }
 
         public void RemoveLife(int amount)
         {
-            // TODO: Decrement player lives and check for defeat.
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            PlayerLives = Mathf.Max(0, PlayerLives - amount);
+            PlayerLivesChanged?.Invoke(PlayerLives);
+
+            if (PlayerLives <= 0 && CurrentState != GameState.Defeat)
+            {
+                EndGame(false);
+            }
         }
 
         public void ChangeState(GameState newState)
         {
-            // TODO: Transition between game states and notify listeners.
+            if (CurrentState == newState)
+            {
+                return;
+            }
+
+            CurrentState = newState;
+            GameStateChanged?.Invoke(CurrentState);
+        }
+
+        public void SetGameSpeed(float speed)
+        {
+            speed = Mathf.Clamp(speed, 0.1f, 5f);
+            CurrentGameSpeed = speed;
+
+            if (!IsPaused)
+            {
+                Time.timeScale = CurrentGameSpeed;
+            }
+
+            GameSpeedChanged?.Invoke(CurrentGameSpeed);
+        }
+
+        private void HandleTowerCurrencyChanged(int amount)
+        {
+            PlayerCurrency = amount;
+            PlayerCurrencyChanged?.Invoke(PlayerCurrency);
+        }
+
+        private void HandleLevelLoaded(LevelData level)
+        {
+            if (level == null)
+            {
+                return;
+            }
+
+            PlayerLives = Mathf.Max(0, level.StartingLives);
+            PlayerCurrency = Mathf.Max(0, level.StartingCurrency);
+            PlayerLivesChanged?.Invoke(PlayerLives);
+            PlayerCurrencyChanged?.Invoke(PlayerCurrency);
+
+            if (towerManager != null)
+            {
+                towerManager.SetCurrency(PlayerCurrency);
+            }
+
+            ChangeState(GameState.PreparingLevel);
+        }
+
+        private void HandleLevelStarted(LevelData level)
+        {
+            ChangeState(GameState.Playing);
+            SetGameSpeed(CurrentGameSpeed <= 0f ? defaultGameSpeed : CurrentGameSpeed);
+        }
+
+        private void HandleLevelCompleted(LevelData level)
+        {
+            ChangeState(GameState.Victory);
+        }
+
+        private void HandleLevelFailed(LevelData level)
+        {
+            ChangeState(GameState.Defeat);
+        }
+
+        private void HandleWaveStarted(WaveData wave, int index)
+        {
+            uiManager?.ShowWaveIncoming(index + 1);
+        }
+
+        private void HandleWaveCompleted(WaveData wave, int index)
+        {
+            // Reserved for future expansion (rewards, UI notifications, etc.).
+        }
+
+        private void HandleAllWavesCompleted(LevelData level)
+        {
+            levelManager?.CompleteLevel();
         }
     }
 
