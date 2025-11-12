@@ -31,15 +31,19 @@ namespace TD.Systems
             }
         }
 
-        public T Get()
+        public T Get(bool activate = true)
         {
             if (pool.Count == 0)
             {
-                return CreateInstance(true);
+                return CreateInstance(activate);
             }
 
             var instance = pool.Pop();
-            instance.gameObject.SetActive(true);
+            if (activate)
+            {
+                instance.gameObject.SetActive(true);
+            }
+
             return instance;
         }
 

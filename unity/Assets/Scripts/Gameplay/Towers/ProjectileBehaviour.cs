@@ -1,13 +1,14 @@
 using UnityEngine;
 using TD.Gameplay.Enemies;
 using TD.Systems;
+using TD.Systems.Ticking;
 
 namespace TD.Gameplay.Towers
 {
     /// <summary>
     /// Handles projectile travel and applying damage on impact before returning to the pool.
     /// </summary>
-    public class ProjectileBehaviour : MonoBehaviour
+    public class ProjectileBehaviour : MonoBehaviour, ITickable
     {
         [SerializeField, Min(0.1f)] private float lifeTime = 3f;
 
@@ -28,7 +29,20 @@ namespace TD.Gameplay.Towers
             timeRemaining = lifeTime;
         }
 
-        private void Update()
+        private void OnEnable()
+        {
+            TickService.Register(this);
+        }
+
+        private void OnDisable()
+        {
+            TickService.Unregister(this);
+            target = null;
+            pool = null;
+            timeRemaining = 0f;
+        }
+
+        public void Tick(float deltaTime)
         {
             if (target == null || !target.IsAlive)
             {
@@ -36,7 +50,7 @@ namespace TD.Gameplay.Towers
                 return;
             }
 
-            timeRemaining -= Time.deltaTime;
+            timeRemaining -= deltaTime;
             if (timeRemaining <= 0f)
             {
                 Release();
@@ -45,7 +59,7 @@ namespace TD.Gameplay.Towers
 
             var targetPosition = target.AimPosition;
             var toTarget = targetPosition - transform.position;
-            var distanceThisFrame = speed * Time.deltaTime;
+            var distanceThisFrame = speed * deltaTime;
 
             if (toTarget.sqrMagnitude <= distanceThisFrame * distanceThisFrame)
             {

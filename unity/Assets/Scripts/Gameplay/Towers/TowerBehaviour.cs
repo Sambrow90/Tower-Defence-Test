@@ -1,15 +1,17 @@
 using System;
 using UnityEngine;
+using Unity.Profiling;
 using TD.Gameplay.Data;
 using TD.Gameplay.Enemies;
 using TD.Systems;
+using TD.Systems.Ticking;
 
 namespace TD.Gameplay.Towers
 {
     /// <summary>
     /// Controls targeting and shooting for a tower instance using TowerData configuration.
     /// </summary>
-    public class TowerBehaviour : MonoBehaviour
+    public class TowerBehaviour : MonoBehaviour, ITickable
     {
         public event Action<TowerBehaviour, EnemyBehaviour> TargetAcquired;
         public event Action<TowerBehaviour, EnemyBehaviour> TargetLost;
@@ -21,6 +23,8 @@ namespace TD.Gameplay.Towers
         [SerializeField, Min(0.02f)] private float retargetInterval = 0.1f;
 
         private static readonly Collider[] TargetBuffer = new Collider[32];
+
+        private static readonly ProfilerMarker ShootMarker = new("TowerBehaviour.Shoot");
 
         private ObjectPool<ProjectileBehaviour> projectilePool;
         private EnemyBehaviour currentTarget;
@@ -53,6 +57,7 @@ namespace TD.Gameplay.Towers
         {
             fireCooldown = 0f;
             targetTimer = 0f;
+            TickService.Register(this);
         }
 
         /// <summary>
@@ -69,14 +74,14 @@ namespace TD.Gameplay.Towers
             targetTimer = 0f;
         }
 
-        private void Update()
+        public void Tick(float deltaTime)
         {
             if (towerData == null)
             {
                 return;
             }
 
-            targetTimer -= Time.deltaTime;
+            targetTimer -= deltaTime;
             if (targetTimer <= 0f)
             {
                 targetTimer = retargetInterval;
@@ -89,7 +94,7 @@ namespace TD.Gameplay.Towers
                 return;
             }
 
-            fireCooldown -= Time.deltaTime;
+            fireCooldown -= deltaTime;
             if (fireCooldown <= 0f)
             {
                 Shoot();
@@ -192,13 +197,22 @@ namespace TD.Gameplay.Towers
                 return;
             }
 
-            var projectile = projectilePool.Get();
-            projectile.transform.position = firePoint != null ? firePoint.position : transform.position;
-            projectile.transform.rotation = firePoint != null ? firePoint.rotation : transform.rotation;
-            projectile.Launch(currentTarget, towerData.Damage, towerData.ProjectileSpeed, towerData.DamageType, projectilePool);
+            using (ShootMarker.Auto())
+            {
+                var projectile = projectilePool.Get();
+                projectile.transform.position = firePoint != null ? firePoint.position : transform.position;
+                projectile.transform.rotation = firePoint != null ? firePoint.rotation : transform.rotation;
+                projectile.Launch(currentTarget, towerData.Damage, towerData.ProjectileSpeed, towerData.DamageType, projectilePool);
+            }
 
             fireCooldown = towerData.FireRate > 0f ? 1f / towerData.FireRate : 0f;
             ShotFired?.Invoke(this);
+        }
+
+        private void OnDisable()
+        {
+            TickService.Unregister(this);
+            ReleaseTarget();
         }
     }
 }
