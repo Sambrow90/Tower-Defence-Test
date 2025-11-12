@@ -1,42 +1,84 @@
 #:kivy 2.3.0
+#:import resource_path td.util.resources.resource_path
+#:import dp kivy.metrics.dp
 
 <RootScreens>:
 
 
+<MenuTitle@Label>:
+    font_name: app.font_path if app.font_path else ''
+    color: 1, 1, 1, 1
+    halign: 'center'
+    text_size: self.size
+
+<MenuBody@Label>:
+    font_name: app.font_path if app.font_path else ''
+    color: 0.92, 0.95, 1, 1
+    halign: 'center'
+    text_size: self.size
+
+<FancyButton@Button>:
+    background_normal: resource_path("assets", "ui", "button_normal.gif") if app.assets_ready else ''
+    background_down: resource_path("assets", "ui", "button_down.gif") if app.assets_ready else ''
+    background_color: 1, 1, 1, 1
+    border: 16, 16, 16, 16
+    font_name: app.font_path if app.font_path else ''
+    color: 0.1, 0.16, 0.25, 1
+    font_size: '28sp'
+    on_state:
+        self.background_color = (1, 1, 1, 1) if self.state == 'normal' else (0.8, 0.85, 1, 1)
+
 <MenuScreen>:
-    BoxLayout:
-        orientation: 'vertical'
-        padding: '20dp'
-        spacing: '12dp'
-        canvas.before:
-            Color:
-                rgba: 0.07, 0.07, 0.1, 1
-            Rectangle:
-                pos: self.pos
-                size: self.size
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, 1
+        Rectangle:
+            source: resource_path("assets", "textures", "background.png") if app.assets_ready else ''
+            pos: self.pos
+            size: self.size
+    AnchorLayout:
+        anchor_x: 'center'
+        anchor_y: 'center'
+        padding: dp(40)
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint: 0.5, 0.7
+            padding: dp(32)
+            spacing: dp(20)
+            canvas.before:
+                Color:
+                    rgba: (1, 1, 1, 0.92) if app.assets_ready else (0.1, 0.12, 0.18, 0.9)
+                Rectangle:
+                    source: resource_path("assets", "ui", "panel.gif") if app.assets_ready else ''
+                    pos: self.pos
+                    size: self.size
 
-        Label:
-            text: "Modular TD (Kivy)"
-            font_size: '32sp'
-            size_hint_y: None
-            height: '80dp'
+            MenuTitle:
+                text: "Modular TD (Kivy)"
+                font_size: '48sp'
+                size_hint_y: None
+                height: dp(80)
 
-        Label:
-            text: "Ein simpler, modularer 2D-TD-Prototyp"
-            size_hint_y: None
-            height: '40dp'
+            MenuBody:
+                text: "Verteidige die Stadt mit fusionierbaren Türmen und stylischem Look."
+                font_size: '20sp'
+                size_hint_y: None
+                height: dp(60)
 
-        Button:
-            text: "Spiel starten"
-            size_hint: 0.4, None
-            height: '48dp'
-            pos_hint: {'center_x': 0.5}
-            on_release: root.start_game()
+            FancyButton:
+                text: "Spiel starten"
+                size_hint: None, None
+                size: dp(240), dp(72)
+                pos_hint: {'center_x': 0.5}
+                on_release:
+                    app.play_ui_click()
+                    root.start_game()
 
-        Widget:
-            size_hint_y: 1
+            Widget:
+                size_hint_y: 1
 
-        Label:
-            text: "Hinweis: Platzieren mit Linksklick; Towers schießen automatisch."
-            size_hint_y: None
-            height: '40dp'
+            MenuBody:
+                text: "Steuerung: Linksklick zum Platzieren, Rechtsklick zum Tower-Wechsel."
+                font_size: '18sp'
+                size_hint_y: None
+                height: dp(50)

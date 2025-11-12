@@ -26,14 +26,14 @@ def update_world(world, dt):
             if t.tower_type == "slow":
                 target.apply_slow(0.5, 1.0)
             t.shoot()
-            world.cb_shoot()
+            world.cb_shoot(t, target)
 
     # Update enemies & handle removal/events
     new_enemies = []
     for e in world.enemies:
         status = e.update(dt)
         if status == "dead":
-            world.cb_death()
+            world.cb_death(e)
             world.give_gold(10)
             continue
         elif status == "end":

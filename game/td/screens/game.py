@@ -1,11 +1,14 @@
+import os
+import math
+
 from kivy.uix.screenmanager import Screen
 from kivy.uix.widget import Widget
 from kivy.properties import NumericProperty, StringProperty, ObjectProperty
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle
-import math
-from kivy.graphics.texture import Texture
+from kivy.graphics import Color, Rectangle, Ellipse
+from kivy.core.image import Image as CoreImage
 from kivy.core.audio import SoundLoader
+from kivy.logger import Logger
 
 from td.core.world import World
 from td.core.systems import update_world
@@ -16,117 +19,77 @@ class GameWidget(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Build small pixel-art textures directly in code to avoid external images
-        palette = {
-            '0': (0, 0, 0, 0),
-            'D': (34, 34, 42, 255),
-            'd': (44, 44, 52, 255),
-            'P': (120, 70, 20, 255),
-            'p': (160, 110, 60, 255),
-            'S': (190, 170, 140, 255),
-            '3': (60, 60, 70, 255),
-            '5': (150, 150, 160, 255),
-            '6': (110, 110, 120, 255),
-            '7': (80, 80, 90, 255),
-            '2': (70, 170, 255, 255),
-            '9': (90, 0, 0, 255),
-            'b': (200, 40, 40, 255),
-            'B': (240, 80, 80, 255),
-            '1': (255, 255, 255, 255),
-        }
-
-        def pixel_texture(pattern, repeat=False):
-            h = len(pattern)
-            w = len(pattern[0])
-            buf = bytearray()
-            for row in pattern:
-                for ch in row:
-                    buf.extend(palette.get(ch, (0, 0, 0, 0)))
-            tex = Texture.create(size=(w, h))
-            tex.blit_buffer(bytes(buf), colorfmt='rgba', bufferfmt='ubyte')
-            tex.mag_filter = 'nearest'
-            tex.min_filter = 'nearest'
-            if repeat:
+        # Load external artwork if available
+        def load_tex(*parts, linear=True, wrap=True):
+            path = resource_path(*parts)
+            if not os.path.exists(path):
+                Logger.warning("game: missing asset '%s'", path)
+                return None
+            try:
+                img = CoreImage(path)
+            except Exception as exc:
+                Logger.warning("game: failed to load '%s': %s", path, exc)
+                return None
+            tex = img.texture
+            if wrap:
                 tex.wrap = 'repeat'
+            if linear:
+                tex.mag_filter = 'linear'
+                tex.min_filter = 'linear'
+            else:
+                tex.mag_filter = 'nearest'
+                tex.min_filter = 'nearest'
             return tex
 
-        bg_pattern = [
-            "DdDdDdDd",
-            "dDdDdDdD",
-            "DdDdDdDd",
-            "dDdDdDdD",
-            "DdDdDdDd",
-            "dDdDdDdD",
-            "DdDdDdDd",
-            "dDdDdDdD",
-        ]
+        self.bg_tex = load_tex("assets", "textures", "background.png")
+        mesh_tex = load_tex("assets", "textures", "path.png")
+        if mesh_tex:
+            region_size = min(mesh_tex.width, mesh_tex.height) // 3
+            x = int((mesh_tex.width - region_size) / 2)
+            y = int((mesh_tex.height - region_size) / 2)
+            self.path_tex = mesh_tex.get_region(x, y, region_size, region_size)
+            self.path_tex.wrap = 'repeat'
+            self.path_tex.mag_filter = 'linear'
+            self.path_tex.min_filter = 'linear'
+        else:
+            self.path_tex = None
 
-        path_pattern = [
-            "PPPPPPPPPPPPPPPP",
-            "PPppppppppppppPP",
-            "PPppppppppppppPP",
-            "PPpppppSSpppppPP",
-            "PPppppppppppppPP",
-            "PPppppppppppppPP",
-            "PPppppppppppppPP",
-            "PPpppppSSpppppPP",
-            "PPppppppppppppPP",
-            "PPppppppppppppPP",
-            "PPppppppppppppPP",
-            "PPpppppSSpppppPP",
-            "PPppppppppppppPP",
-            "PPppppppppppppPP",
-            "PPppppppppppppPP",
-            "PPPPPPPPPPPPPPPP",
-        ]
+        self.tower_textures = {
+            "cannon": load_tex("assets", "textures", "tower_cannon.png", linear=False, wrap=False),
+            "slow": load_tex("assets", "textures", "tower_slow.png", linear=False, wrap=False),
+        }
+        self.tower_elite_tex = load_tex("assets", "textures", "tower_elite.png", linear=False, wrap=False)
 
-        tower_pattern = [
-            "0000003333000000",
-            "0000335555330000",
-            "0003555555530000",
-            "0035556665553000",
-            "0035566666553000",
-            "0355667776655300",
-            "0355677227655300",
-            "0355672227655300",
-            "0355677227655300",
-            "0355667776655300",
-            "0035566666553000",
-            "0035556665553000",
-            "0003555555530000",
-            "0000335555330000",
-            "0000003333000000",
-            "0000000000000000",
-        ]
+        enemy_sheet = load_tex("assets", "animations", "enemy_walk.png", linear=False, wrap=False)
+        self.enemy_frames = None
+        if enemy_sheet:
+            self.enemy_frames = {}
+            cols = 8
+            rows = 4
+            frame_w = enemy_sheet.width // cols
+            frame_h = enemy_sheet.height // rows
+            directions = ["south", "west", "east", "north"]
+            for row, direction in enumerate(directions):
+                y = enemy_sheet.height - (row + 1) * frame_h
+                frames = []
+                for col in range(cols):
+                    region = enemy_sheet.get_region(col * frame_w, y, frame_w, frame_h)
+                    region.mag_filter = 'nearest'
+                    region.min_filter = 'nearest'
+                    frames.append(region)
+                self.enemy_frames[direction] = frames
 
-        enemy_pattern = [
-            "0000009999000000",
-            "000099bbbb990000",
-            "0009bbbbbbbb9000",
-            "009bbbbbbbbbb900",
-            "009bbbBbbbBbb900",
-            "09bbbb1111bbbb90",
-            "09bbb1BB11bbb900",
-            "09bbb1BB11bbb900",
-            "09bbbb1111bbbb90",
-            "09bbb1BB11bbb900",
-            "009bbbBbbbBbb900",
-            "009bbbbbbbbbb900",
-            "0009bbbbbbbb9000",
-            "000099bbbb990000",
-            "0000009999000000",
-            "0000000000000000",
-        ]
-
-        self.bg_tex = pixel_texture(bg_pattern, repeat=True)
-        self.path_tex = pixel_texture(path_pattern)
-        self.enemy_tex = pixel_texture(enemy_pattern)
-        self.tower_tex = pixel_texture(tower_pattern)
+        self.projectile_tex = load_tex("assets", "animations", "projectile.gif", wrap=False)
+        self.explosion_tex = load_tex("assets", "animations", "explosion.gif", wrap=False)
 
         self.tower_colors = {"cannon": (1, 1, 1), "slow": (0.4, 0.6, 1)}
         self.enemy_colors = {"normal": (1, 1, 1), "fast": (1, 0.5, 0.5)}
         self.selected_tower = None
-        self._music = SoundLoader.load(resource_path("assets", "music", "loop.wav"))
+        self.shot_effects = []
+        self.explosions = []
+        self.enemy_states = {}
+
+        self._music = SoundLoader.load(resource_path("assets", "music", "loop.mp3"))
         if self._music:
             self._music.loop = True
             self._music.volume = 0.2
@@ -169,55 +132,201 @@ class GameWidget(Widget):
     def draw(self):
         self.canvas.clear()
         with self.canvas:
-            # Background with repeating texture
-            Color(1, 1, 1, 1)
-            rx = self.width / self.bg_tex.width
-            ry = self.height / self.bg_tex.height
-            Rectangle(texture=self.bg_tex, pos=self.pos, size=self.size,
-                      tex_coords=(0, 0, rx, 0, rx, ry, 0, ry))
+            # Background artwork
+            if self.bg_tex:
+                Color(1, 1, 1, 1)
+                Rectangle(texture=self.bg_tex, pos=self.pos, size=self.size)
+            else:
+                Color(0.08, 0.1, 0.16, 1)
+                Rectangle(pos=self.pos, size=self.size)
 
             # Path drawn as tiled pixel-art road
             left, bottom, _, _ = self.world.viewport
             for (gx, gy) in self.world.path_grid:
                 px = left + gx * self.world.tile_size
                 py = bottom + gy * self.world.tile_size
-                Rectangle(texture=self.path_tex, pos=(px, py),
-                          size=(self.world.tile_size, self.world.tile_size))
+                if self.path_tex:
+                    Color(1, 1, 1, 0.9)
+                    Rectangle(texture=self.path_tex, pos=(px, py),
+                              size=(self.world.tile_size, self.world.tile_size))
+                    Color(1, 1, 1, 1)
+                else:
+                    Color(0.35, 0.26, 0.18, 1)
+                    Rectangle(pos=(px, py), size=(self.world.tile_size, self.world.tile_size))
+                    Color(1, 1, 1, 1)
 
             # Towers
             for t in self.world.towers:
                 col = self.tower_colors.get(t.tower_type, (1, 1, 1))
-                scale = 1.0 + 0.05 * (t.level - 1) + 0.1 * math.sin(t.anim * 3)
-                size = 32 * scale
-                Color(*col, 1)
-                Rectangle(texture=self.tower_tex, pos=(t.x - size/2, t.y - size/2), size=(size, size))
+                base = self.world.tile_size * 0.9
+                scale = 1.0 + 0.06 * (t.level - 1) + 0.06 * math.sin(t.anim * 3)
+                height = base * scale
+                texture = self.tower_textures.get(t.tower_type)
+                Color(0, 0, 0, 0.22)
+                shadow_size = (self.world.tile_size * 0.82, self.world.tile_size * 0.4)
+                Ellipse(pos=(t.x - shadow_size[0]/2, t.y - shadow_size[1]/2 - 4), size=shadow_size)
+                if texture:
+                    aspect = texture.width / texture.height if texture.height else 1.0
+                    width = height * aspect
+                    Color(1, 1, 1, 1)
+                    Rectangle(texture=texture, pos=(t.x - width/2, t.y - height/2), size=(width, height))
+                else:
+                    width = height
+                    Color(*col, 1)
+                    Rectangle(pos=(t.x - width/2, t.y - height/2), size=(width, height))
+
+                if t.level >= 4 and self.tower_elite_tex:
+                    elite = self.tower_elite_tex
+                    elite_width = width * 1.05
+                    elite_height = height * 1.05
+                    Color(1, 1, 1, 0.65)
+                    Rectangle(texture=elite, pos=(t.x - elite_width/2, t.y - elite_height/2),
+                              size=(elite_width, elite_height))
+
+                if t.level > 1:
+                    Color(1.0, 0.84, 0.2, 0.28)
+                    ring = self.world.tile_size * (0.5 + 0.12 * (t.level - 1))
+                    Ellipse(pos=(t.x - ring, t.y - ring), size=(ring * 2, ring * 2))
                 if self.selected_tower is t:
-                    Color(1, 1, 0, 0.6)
-                    Rectangle(pos=(t.x - size/2 - 2, t.y - size/2 - 2), size=(size + 4, size + 4))
+                    Color(0.55, 0.85, 1.0, 0.85)
+                    Rectangle(pos=(t.x - width/2 - 3, t.y - height/2 - 3), size=(width + 6, height + 6))
                 Color(1, 1, 1, 1)
 
-            # Enemies with small health bar
+            # Enemies with animation and health bar
             for e in self.world.enemies:
                 col = self.enemy_colors.get(e.enemy_type, (1, 1, 1))
-                offset = 2 * math.sin(e.anim * 6)
-                Color(*col, 1)
-                Rectangle(texture=self.enemy_tex, pos=(e.x - 16, e.y - 16 + offset), size=(32, 32))
+                state = self.enemy_states.get(id(e))
+                frame = None
+                if state and self.enemy_frames:
+                    frames = self.enemy_frames.get(state["dir"], [])
+                    if frames:
+                        frame = frames[state["frame"] % len(frames)]
+                Color(0, 0, 0, 0.25)
+                shadow_size = (self.world.tile_size * 0.75, self.world.tile_size * 0.32)
+                Ellipse(pos=(e.x - shadow_size[0]/2, e.y - shadow_size[1]/2 - 3), size=shadow_size)
+                if frame:
+                    sprite_size = self.world.tile_size * 1.2
+                    Color(1, 1, 1, 1)
+                    Rectangle(texture=frame, pos=(e.x - sprite_size/2, e.y - sprite_size/2), size=(sprite_size, sprite_size))
+                else:
+                    offset = 2 * math.sin(e.anim * 6)
+                    size = self.world.tile_size * 0.9
+                    Color(*col, 1)
+                    Ellipse(pos=(e.x - size/2, e.y - size/2 + offset), size=(size, size))
                 hp_frac = max(0.0, e.hp / e.max_hp)
-                Color(0.2, 0.0, 0.0, 1)
-                Rectangle(pos=(e.x - 16, e.y + 18 + offset), size=(32, 4))
-                Color(0.8, 0.0, 0.0, 1)
-                Rectangle(pos=(e.x - 16, e.y + 18 + offset), size=(32 * hp_frac, 4))
+                bar_width = self.world.tile_size * 0.9
+                Color(0.12, 0.05, 0.02, 1)
+                Rectangle(pos=(e.x - bar_width/2, e.y + self.world.tile_size * 0.55), size=(bar_width, 6))
+                Color(0.85, 0.1, 0.18, 1)
+                Rectangle(pos=(e.x - bar_width/2, e.y + self.world.tile_size * 0.55), size=(bar_width * hp_frac, 6))
                 Color(1, 1, 1, 1)
 
-    def play_shoot(self):
+            # Projectile trails
+            for effect in self.shot_effects:
+                alpha = max(0.0, 1.0 - effect["progress"])
+                Color(1, 1, 1, alpha)
+                pos = effect["pos"]
+                size = effect["size"]
+                if self.projectile_tex:
+                    Rectangle(texture=self.projectile_tex,
+                              pos=(pos[0] - size/2, pos[1] - size/2),
+                              size=(size, size))
+                else:
+                    Ellipse(pos=(pos[0] - size/4, pos[1] - size/4), size=(size/2, size/2))
+
+            # Explosions
+            for blast in self.explosions:
+                alpha = max(0.0, 1.0 - blast["progress"])
+                Color(1, 1, 1, alpha)
+                size = blast["size"] * (0.6 + 0.4 * blast["progress"])
+                if self.explosion_tex:
+                    Rectangle(texture=self.explosion_tex,
+                              pos=(blast["pos"][0] - size/2, blast["pos"][1] - size/2),
+                              size=(size, size))
+                else:
+                    Ellipse(pos=(blast["pos"][0] - size/2, blast["pos"][1] - size/2),
+                            size=(size, size))
+
+    def update_effects(self, dt):
+        for effect in list(self.shot_effects):
+            effect["time"] += dt
+            effect["progress"] = effect["time"] / effect["duration"]
+            if effect["progress"] >= 1.0:
+                self.shot_effects.remove(effect)
+                continue
+            sx, sy = effect["start"]
+            tx, ty = effect["end"]
+            frac = effect["progress"]
+            effect["pos"] = (sx + (tx - sx) * frac, sy + (ty - sy) * frac)
+
+        for blast in list(self.explosions):
+            blast["time"] += dt
+            blast["progress"] = blast["time"] / blast["duration"]
+            if blast["progress"] >= 1.0:
+                self.explosions.remove(blast)
+
+        if self.enemy_frames:
+            active_ids = set()
+            for enemy in self.world.enemies:
+                key = id(enemy)
+                active_ids.add(key)
+                state = self.enemy_states.get(key)
+                if state is None:
+                    state = {
+                        "frame": 0,
+                        "time": 0.0,
+                        "dir": "south",
+                        "pos": (enemy.x, enemy.y),
+                    }
+                    self.enemy_states[key] = state
+                else:
+                    prev_x, prev_y = state["pos"]
+                    dx = enemy.x - prev_x
+                    dy = enemy.y - prev_y
+                    if abs(dx) + abs(dy) > 0.1:
+                        if abs(dx) > abs(dy):
+                            state["dir"] = "east" if dx > 0 else "west"
+                        else:
+                            state["dir"] = "north" if dy > 0 else "south"
+                    state["pos"] = (enemy.x, enemy.y)
+                    move_mag = (dx * dx + dy * dy) ** 0.5
+                    state["time"] += dt + move_mag * 0.015
+                    if state["time"] >= 0.12:
+                        state["time"] -= 0.12
+                        frames = self.enemy_frames.get(state["dir"], [])
+                        if frames:
+                            state["frame"] = (state["frame"] + 1) % len(frames)
+            for key in list(self.enemy_states.keys()):
+                if key not in active_ids:
+                    self.enemy_states.pop(key, None)
+
+    def play_shoot(self, tower, enemy):
         if self.sfx_shoot:
             self.sfx_shoot.stop()
             self.sfx_shoot.play()
+        start = (tower.x, tower.y)
+        target_pos = (enemy.x, enemy.y)
+        self.shot_effects.append({
+            "start": start,
+            "end": target_pos,
+            "pos": start,
+            "time": 0.0,
+            "duration": 0.25,
+            "progress": 0.0,
+            "size": self.world.tile_size * 0.45,
+        })
 
-    def play_death(self):
+    def play_death(self, enemy):
         if self.sfx_death:
             self.sfx_death.stop()
             self.sfx_death.play()
+        self.explosions.append({
+            "pos": (enemy.x, enemy.y),
+            "time": 0.0,
+            "duration": 0.35,
+            "progress": 0.0,
+            "size": self.world.tile_size * 1.6,
+        })
 
 
 class GameScreen(Screen):
@@ -240,6 +349,8 @@ class GameScreen(Screen):
 
     def _update(self, dt):
         update_world(self.world, dt)
+        if not self.world.paused and self.world.lives > 0:
+            self.ids.game.update_effects(dt)
         self.gold = self.world.gold
         self.lives = self.world.lives
         self.wave = self.world.wave_number
@@ -247,11 +358,11 @@ class GameScreen(Screen):
         self.next_wave_in = max(0.0, self.world.time_to_next_wave)
         self.ids.game.draw()
 
-    def on_tower_shoot(self):
-        self.ids.game.play_shoot()
+    def on_tower_shoot(self, tower, enemy):
+        self.ids.game.play_shoot(tower, enemy)
 
-    def on_enemy_death(self):
-        self.ids.game.play_death()
+    def on_enemy_death(self, enemy):
+        self.ids.game.play_death(enemy)
 
     def pause(self):
         self.world.paused = True
