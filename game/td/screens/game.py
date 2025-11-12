@@ -1,11 +1,12 @@
 import os
 import math
+import random
 
 from kivy.uix.screenmanager import Screen
 from kivy.uix.widget import Widget
 from kivy.properties import NumericProperty, StringProperty, ObjectProperty
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle, Ellipse
+from kivy.graphics import Color, Rectangle, Ellipse, Line, PushMatrix, PopMatrix, Rotate
 from kivy.core.image import Image as CoreImage
 from kivy.core.audio import SoundLoader
 from kivy.logger import Logger
@@ -60,34 +61,27 @@ class GameWidget(Widget):
         }
         self.tower_elite_tex = load_tex("assets", "textures", "tower_elite.png", linear=False, wrap=False)
 
-        enemy_sheet = load_tex("assets", "animations", "enemy_walk.png", linear=False, wrap=False)
-        self.enemy_frames = None
-        if enemy_sheet:
-            self.enemy_frames = {}
-            cols = 8
-            rows = 4
-            frame_w = enemy_sheet.width // cols
-            frame_h = enemy_sheet.height // rows
-            directions = ["south", "west", "east", "north"]
-            for row, direction in enumerate(directions):
-                y = enemy_sheet.height - (row + 1) * frame_h
-                frames = []
-                for col in range(cols):
-                    region = enemy_sheet.get_region(col * frame_w, y, frame_w, frame_h)
-                    region.mag_filter = 'nearest'
-                    region.min_filter = 'nearest'
-                    frames.append(region)
-                self.enemy_frames[direction] = frames
-
         self.projectile_tex = load_tex("assets", "animations", "projectile.gif", wrap=False)
         self.explosion_tex = load_tex("assets", "animations", "explosion.gif", wrap=False)
 
         self.tower_colors = {"cannon": (1, 1, 1), "slow": (0.4, 0.6, 1)}
-        self.enemy_colors = {"normal": (1, 1, 1), "fast": (1, 0.5, 0.5)}
+        self.enemy_palettes = {
+            "normal": {
+                "body": (0.1, 0.18, 0.12),
+                "accent": (0.42, 0.92, 0.74),
+                "wing": (0.85, 0.95, 0.9, 0.45),
+            },
+            "fast": {
+                "body": (0.22, 0.09, 0.02),
+                "accent": (1.0, 0.72, 0.3),
+                "wing": (1.0, 0.84, 0.62, 0.4),
+            },
+        }
         self.selected_tower = None
         self.shot_effects = []
         self.explosions = []
         self.enemy_states = {}
+        self.enemy_splats = []
 
         self._music = SoundLoader.load(resource_path("assets", "music", "loop.mp3"))
         if self._music:
@@ -142,18 +136,45 @@ class GameWidget(Widget):
 
             # Path drawn as tiled pixel-art road
             left, bottom, _, _ = self.world.viewport
-            for (gx, gy) in self.world.path_grid:
-                px = left + gx * self.world.tile_size
-                py = bottom + gy * self.world.tile_size
+            tile = self.world.tile_size
+            inner_margin = tile * 0.18
+            edge_band = tile * 0.12
+            path_tiles = list(self.world.path_grid)
+            path_set = set(path_tiles)
+            for (gx, gy) in path_tiles:
+                px = left + gx * tile
+                py = bottom + gy * tile
+
+                Color(0.22, 0.18, 0.14, 1)
+                Rectangle(pos=(px, py), size=(tile, tile))
+
+                inner_pos = (px + inner_margin, py + inner_margin)
+                inner_size = (tile - 2 * inner_margin, tile - 2 * inner_margin)
                 if self.path_tex:
-                    Color(1, 1, 1, 0.9)
-                    Rectangle(texture=self.path_tex, pos=(px, py),
-                              size=(self.world.tile_size, self.world.tile_size))
-                    Color(1, 1, 1, 1)
+                    Color(1, 1, 1, 0.94)
+                    Rectangle(texture=self.path_tex, pos=inner_pos, size=inner_size)
                 else:
-                    Color(0.35, 0.26, 0.18, 1)
-                    Rectangle(pos=(px, py), size=(self.world.tile_size, self.world.tile_size))
-                    Color(1, 1, 1, 1)
+                    Color(0.7, 0.62, 0.54, 1)
+                    Rectangle(pos=inner_pos, size=inner_size)
+
+                Color(0.86, 0.8, 0.69, 0.7)
+                Ellipse(pos=(px + tile * 0.22, py + tile * 0.16), size=(tile * 0.56, tile * 0.6))
+
+                Color(0.14, 0.12, 0.09, 0.9)
+                Line(rectangle=(inner_pos[0], inner_pos[1], inner_size[0], inner_size[1]),
+                     width=max(1.2, tile * 0.05))
+
+                Color(0.16, 0.13, 0.1, 1)
+                if (gx, gy + 1) not in path_set:
+                    Rectangle(pos=(px, py + tile - edge_band), size=(tile, edge_band))
+                if (gx, gy - 1) not in path_set:
+                    Rectangle(pos=(px, py), size=(tile, edge_band))
+                if (gx - 1, gy) not in path_set:
+                    Rectangle(pos=(px, py), size=(edge_band, tile))
+                if (gx + 1, gy) not in path_set:
+                    Rectangle(pos=(px + tile - edge_band, py), size=(edge_band, tile))
+
+                Color(1, 1, 1, 1)
 
             # Towers
             for t in self.world.towers:
@@ -192,33 +213,16 @@ class GameWidget(Widget):
                     Rectangle(pos=(t.x - width/2 - 3, t.y - height/2 - 3), size=(width + 6, height + 6))
                 Color(1, 1, 1, 1)
 
+            # Fallen enemy residue
+            for splat in self.enemy_splats:
+                self._draw_enemy_splat(splat)
+
             # Enemies with animation and health bar
             for e in self.world.enemies:
-                col = self.enemy_colors.get(e.enemy_type, (1, 1, 1))
-                state = self.enemy_states.get(id(e))
-                frame = None
-                if state and self.enemy_frames:
-                    frames = self.enemy_frames.get(state["dir"], [])
-                    if frames:
-                        frame = frames[state["frame"] % len(frames)]
-                Color(0, 0, 0, 0.25)
-                shadow_size = (self.world.tile_size * 0.75, self.world.tile_size * 0.32)
-                Ellipse(pos=(e.x - shadow_size[0]/2, e.y - shadow_size[1]/2 - 3), size=shadow_size)
-                if frame:
-                    sprite_size = self.world.tile_size * 1.2
-                    Color(1, 1, 1, 1)
-                    Rectangle(texture=frame, pos=(e.x - sprite_size/2, e.y - sprite_size/2), size=(sprite_size, sprite_size))
-                else:
-                    offset = 2 * math.sin(e.anim * 6)
-                    size = self.world.tile_size * 0.9
-                    Color(*col, 1)
-                    Ellipse(pos=(e.x - size/2, e.y - size/2 + offset), size=(size, size))
-                hp_frac = max(0.0, e.hp / e.max_hp)
-                bar_width = self.world.tile_size * 0.9
-                Color(0.12, 0.05, 0.02, 1)
-                Rectangle(pos=(e.x - bar_width/2, e.y + self.world.tile_size * 0.55), size=(bar_width, 6))
-                Color(0.85, 0.1, 0.18, 1)
-                Rectangle(pos=(e.x - bar_width/2, e.y + self.world.tile_size * 0.55), size=(bar_width * hp_frac, 6))
+                palette = self.enemy_palettes.get(e.enemy_type, self.enemy_palettes["normal"])
+                state = self._ensure_enemy_state(e)
+                self._draw_insect_enemy(e, palette, state)
+                self._draw_enemy_healthbar(e)
                 Color(1, 1, 1, 1)
 
             # Projectile trails
@@ -247,7 +251,128 @@ class GameWidget(Widget):
                     Ellipse(pos=(blast["pos"][0] - size/2, blast["pos"][1] - size/2),
                             size=(size, size))
 
+    def _ensure_enemy_state(self, enemy):
+        key = id(enemy)
+        state = self.enemy_states.get(key)
+        if state is None:
+            state = {
+                "phase": random.random() * math.tau,
+                "wing": random.random() * math.tau,
+                "dir": (1.0, 0.0),
+                "pos": (enemy.x, enemy.y),
+                "bob": 0.0,
+                "flash": 0.0,
+            }
+            self.enemy_states[key] = state
+        return state
+
+    def _draw_enemy_splat(self, splat):
+        radius = splat.get("radius", self.world.tile_size * 0.5)
+        progress = splat.get("progress", 0.0)
+        alpha = max(0.0, 1.0 - progress)
+        base_color = splat.get("color", (0.6, 0.2, 0.2))
+        Color(base_color[0], base_color[1], base_color[2], 0.45 * alpha)
+        Ellipse(pos=(splat["pos"][0] - radius, splat["pos"][1] - radius), size=(radius * 2, radius * 1.65))
+        Color(base_color[0] * 0.6, base_color[1] * 0.6, base_color[2] * 0.6, 0.4 * alpha)
+        Ellipse(pos=(splat["pos"][0] - radius * 0.7, splat["pos"][1] - radius * 0.55),
+                size=(radius * 1.4, radius * 1.1))
+        drops = splat.get("drops", [])
+        for dx, dy, size in drops:
+            Color(base_color[0], base_color[1], base_color[2], 0.32 * alpha)
+            Ellipse(pos=(dx - size/2, dy - size/2), size=(size, size))
+
+    def _draw_enemy_healthbar(self, enemy):
+        hp_frac = max(0.0, enemy.hp / enemy.max_hp)
+        bar_width = self.world.tile_size * 0.92
+        Color(0.08, 0.03, 0.01, 1)
+        Rectangle(pos=(enemy.x - bar_width/2, enemy.y + self.world.tile_size * 0.6), size=(bar_width, 6))
+        Color(0.82, 0.16, 0.26, 1)
+        Rectangle(pos=(enemy.x - bar_width/2, enemy.y + self.world.tile_size * 0.6), size=(bar_width * hp_frac, 6))
+
+    def _draw_insect_enemy(self, enemy, palette, state):
+        tile = self.world.tile_size
+        body_color = palette.get("body", (0.14, 0.1, 0.07))
+        accent_color = palette.get("accent", (0.7, 0.9, 0.6))
+        wing_color = palette.get("wing", (0.9, 0.95, 1.0, 0.4))
+        if len(wing_color) == 3:
+            wing_color = (wing_color[0], wing_color[1], wing_color[2], 0.4)
+        scale = tile * (1.05 if enemy.enemy_type == "normal" else 0.95)
+        body_len = scale * 1.05
+        body_width = scale * 0.55
+        head_size = scale * 0.35
+        abdomen_len = scale * 0.7
+        leg_phase = state.get("phase", 0.0)
+        wing_phase = state.get("wing", 0.0)
+        bob = state.get("bob", 0.0)
+        flash = state.get("flash", 0.0)
+
+        Color(0, 0, 0, 0.25)
+        shadow_size = (tile * 0.82, tile * 0.34)
+        Ellipse(pos=(enemy.x - shadow_size[0]/2, enemy.y - shadow_size[1]/2 - 4), size=shadow_size)
+
+        dirx, diry = state.get("dir", (1.0, 0.0))
+        angle = math.degrees(math.atan2(diry, dirx))
+
+        PushMatrix()
+        Rotate(angle=angle, origin=(enemy.x, enemy.y))
+
+        Color(body_color[0], body_color[1], body_color[2], 1)
+        Ellipse(pos=(enemy.x - body_len * 0.65, enemy.y - body_width/2 + bob), size=(body_len, body_width))
+
+        Color(min(1.0, body_color[0] * 1.1),
+              min(1.0, body_color[1] * 1.1),
+              min(1.0, body_color[2] * 1.1), 0.95)
+        Ellipse(pos=(enemy.x - abdomen_len * 0.95, enemy.y - body_width * 0.48 + bob),
+                size=(abdomen_len, body_width * 0.92))
+
+        Color(min(1.0, accent_color[0]),
+              min(1.0, accent_color[1]),
+              min(1.0, accent_color[2]), 0.85)
+        Ellipse(pos=(enemy.x - body_len * 0.25, enemy.y - body_width * 0.38 + bob),
+                size=(body_len * 0.5, body_width * 0.76))
+
+        Color(accent_color[0] * 0.9, accent_color[1] * 0.9, accent_color[2] * 0.9, 0.9)
+        Ellipse(pos=(enemy.x + scale * 0.32 - head_size/2, enemy.y - head_size/2 + bob), size=(head_size, head_size))
+
+        wing_span = scale * 0.85
+        wing_height = scale * 0.55 + math.sin(wing_phase) * scale * 0.08
+        Color(*wing_color)
+        Ellipse(pos=(enemy.x - scale * 0.15 - wing_span/2, enemy.y + body_width * 0.1 + bob),
+                size=(wing_span, wing_height))
+        Ellipse(pos=(enemy.x - scale * 0.15 - wing_span/2, enemy.y - body_width * 0.1 - wing_height + bob),
+                size=(wing_span, wing_height))
+
+        leg_offsets = [-scale * 0.3, -scale * 0.05, scale * 0.22]
+        leg_length = scale * 0.6
+        Color(body_color[0] * 0.6, body_color[1] * 0.6, body_color[2] * 0.6, 1)
+        for i, anchor_x in enumerate(leg_offsets):
+            stride = math.sin(leg_phase + i * 1.2)
+            foot_y = body_width * 0.6 + stride * (body_width * 0.35)
+            Line(points=[enemy.x + anchor_x, enemy.y + bob,
+                         enemy.x + anchor_x - leg_length * 0.3, enemy.y + foot_y + bob,
+                         enemy.x + anchor_x - leg_length * 0.6, enemy.y + foot_y * 0.8 + bob],
+                 width=1.6, cap='round')
+            Line(points=[enemy.x + anchor_x, enemy.y + bob,
+                         enemy.x + anchor_x - leg_length * 0.3, enemy.y - foot_y + bob,
+                         enemy.x + anchor_x - leg_length * 0.6, enemy.y - foot_y * 0.8 + bob],
+                 width=1.6, cap='round')
+
+        if flash > 0.0:
+            intensity = min(1.0, flash / 0.28)
+            Color(1.0, 0.4, 0.2, 0.35 * intensity)
+            Ellipse(pos=(enemy.x - body_len * 0.55, enemy.y - body_width * 0.5 + bob),
+                    size=(body_len * 0.85, body_width * 0.95))
+
+        PopMatrix()
+
     def update_effects(self, dt):
+        for splat in list(self.enemy_splats):
+            splat["time"] += dt
+            if splat["time"] >= splat["duration"]:
+                self.enemy_splats.remove(splat)
+            else:
+                splat["progress"] = splat["time"] / splat["duration"]
+
         for effect in list(self.shot_effects):
             effect["time"] += dt
             effect["progress"] = effect["time"] / effect["duration"]
@@ -265,40 +390,38 @@ class GameWidget(Widget):
             if blast["progress"] >= 1.0:
                 self.explosions.remove(blast)
 
-        if self.enemy_frames:
-            active_ids = set()
-            for enemy in self.world.enemies:
-                key = id(enemy)
-                active_ids.add(key)
-                state = self.enemy_states.get(key)
-                if state is None:
-                    state = {
-                        "frame": 0,
-                        "time": 0.0,
-                        "dir": "south",
-                        "pos": (enemy.x, enemy.y),
-                    }
-                    self.enemy_states[key] = state
-                else:
-                    prev_x, prev_y = state["pos"]
-                    dx = enemy.x - prev_x
-                    dy = enemy.y - prev_y
-                    if abs(dx) + abs(dy) > 0.1:
-                        if abs(dx) > abs(dy):
-                            state["dir"] = "east" if dx > 0 else "west"
-                        else:
-                            state["dir"] = "north" if dy > 0 else "south"
-                    state["pos"] = (enemy.x, enemy.y)
-                    move_mag = (dx * dx + dy * dy) ** 0.5
-                    state["time"] += dt + move_mag * 0.015
-                    if state["time"] >= 0.12:
-                        state["time"] -= 0.12
-                        frames = self.enemy_frames.get(state["dir"], [])
-                        if frames:
-                            state["frame"] = (state["frame"] + 1) % len(frames)
-            for key in list(self.enemy_states.keys()):
-                if key not in active_ids:
-                    self.enemy_states.pop(key, None)
+        active_ids = set()
+        for enemy in self.world.enemies:
+            key = id(enemy)
+            active_ids.add(key)
+            state = self.enemy_states.get(key)
+            if state is None:
+                state = {
+                    "phase": random.random() * math.tau,
+                    "wing": random.random() * math.tau,
+                    "dir": (1.0, 0.0),
+                    "pos": (enemy.x, enemy.y),
+                    "bob": 0.0,
+                }
+                self.enemy_states[key] = state
+            prev_x, prev_y = state["pos"]
+            dx = enemy.x - prev_x
+            dy = enemy.y - prev_y
+            move_mag = (dx * dx + dy * dy) ** 0.5
+            if move_mag > 1e-3:
+                dirx = dx / move_mag
+                diry = dy / move_mag
+                state["dir"] = (dirx, diry)
+            stride_speed = 6.8 * dt + move_mag * 0.02
+            wing_speed = 11.5 * dt + move_mag * 0.04
+            state["phase"] = (state["phase"] + stride_speed) % math.tau
+            state["wing"] = (state["wing"] + wing_speed) % math.tau
+            state["bob"] = math.sin(state["phase"]) * self.world.tile_size * 0.06
+            state["pos"] = (enemy.x, enemy.y)
+            state["flash"] = enemy.hit_flash
+        for key in list(self.enemy_states.keys()):
+            if key not in active_ids:
+                self.enemy_states.pop(key, None)
 
     def play_shoot(self, tower, enemy):
         if self.sfx_shoot:
@@ -320,12 +443,25 @@ class GameWidget(Widget):
         if self.sfx_death:
             self.sfx_death.stop()
             self.sfx_death.play()
-        self.explosions.append({
+        palette = self.enemy_palettes.get(enemy.enemy_type, self.enemy_palettes["normal"])
+        rng = random.Random()
+        radius = self.world.tile_size * (0.52 if enemy.enemy_type == "normal" else 0.45)
+        drops = []
+        for _ in range(6):
+            ang = rng.random() * math.tau
+            dist = rng.uniform(radius * 0.3, radius * 1.1)
+            size = rng.uniform(radius * 0.12, radius * 0.24)
+            drops.append((enemy.x + math.cos(ang) * dist,
+                          enemy.y + math.sin(ang) * dist,
+                          size))
+        self.enemy_splats.append({
             "pos": (enemy.x, enemy.y),
             "time": 0.0,
-            "duration": 0.35,
+            "duration": 0.6,
             "progress": 0.0,
-            "size": self.world.tile_size * 1.6,
+            "radius": radius,
+            "color": palette.get("accent", (0.8, 0.3, 0.2)),
+            "drops": drops,
         })
 
 
