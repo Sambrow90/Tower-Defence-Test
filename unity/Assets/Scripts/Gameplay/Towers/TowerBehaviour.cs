@@ -30,37 +30,82 @@ namespace TD.Gameplay.Towers
 
         protected virtual void Awake()
         {
-            // TODO: Initialize references and stats.
+            CooldownTimer = 0f;
         }
 
         protected virtual void Update()
         {
-            // TODO: Handle targeting and firing cadence.
+            if (CurrentTarget == null)
+            {
+                return;
+            }
+
+            if (!CurrentTarget || Vector3.Distance(transform.position, CurrentTarget.transform.position) > range)
+            {
+                ReleaseTarget();
+                return;
+            }
+
+            if (CooldownTimer > 0f)
+            {
+                CooldownTimer -= Time.deltaTime;
+            }
+
+            if (CooldownTimer <= 0f)
+            {
+                Fire();
+            }
         }
 
         public virtual void Initialize(TowerDefinition definition, TowerManager manager)
         {
-            // TODO: Apply definition data and register with manager if needed.
+            Definition = definition;
         }
 
         public virtual void AcquireTarget(EnemyBehaviour enemy)
         {
-            // TODO: Set current target and notify listeners.
+            if (enemy == null)
+            {
+                return;
+            }
+
+            CurrentTarget = enemy;
+            TargetAcquired?.Invoke(this);
         }
 
         public virtual void ReleaseTarget()
         {
-            // TODO: Clear target reference and notify listeners.
+            if (CurrentTarget == null)
+            {
+                return;
+            }
+
+            CurrentTarget = null;
+            TargetLost?.Invoke(this);
         }
 
         public virtual void Fire()
         {
-            // TODO: Execute attack logic and damage application.
+            if (CurrentTarget == null)
+            {
+                return;
+            }
+
+            CurrentTarget.ApplyDamage(baseDamage);
+            ShotFired?.Invoke(this);
+            CooldownTimer = FireRate > 0f ? 1f / FireRate : 0f;
         }
 
         public virtual void ApplyUpgrade(TowerUpgradeDefinition upgrade)
         {
-            // TODO: Modify stats based on upgrade data.
+            if (upgrade == null)
+            {
+                return;
+            }
+
+            baseDamage = Mathf.RoundToInt(baseDamage * upgrade.DamageModifier);
+            range *= upgrade.RangeModifier;
+            fireRate *= upgrade.FireRateModifier;
         }
     }
 }
